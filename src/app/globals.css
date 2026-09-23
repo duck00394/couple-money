@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   Design tokens — 韓系奶油風（cream / oat / 豆沙 / 可可）
+   ---------------------------------------------------------------------------
+   做法：直接覆寫 Tailwind 的色階變數，讓整個 App 既有的 `stone-*`、`brand-*`、
+   `emerald-*`（收入）、`red-*`（支出／危險）、`amber-*`（尚未入金）、
+   `orange-*`（快超過）、`sky-*`（轉帳）全部一次換成低飽和的暖色系。
+   這樣「一個地方改、全站一致」，不需要每頁各自寫一套樣式。
+   語意保持不變：綠＝收入、紅＝支出／危險、橘＝快超過、琥珀＝尚未入金、藍＝不算收支。
+   =========================================================================== */
+@theme {
+  /* — 畫布與紙張 — */
+  --color-canvas: #f7f3ed; /* App 背景：奶油白 */
+  --color-white: #fffdfa; /* 卡片紙張：暖白（不是純白，才有奶油感） */
+
+  /* — 中性色（燕麥 → 可可）：對應原本的 stone-* — */
+  --color-stone-50: #faf7f2;
+  --color-stone-100: #f3eee7;
+  --color-stone-200: #e8e0d6;
+  --color-stone-300: #d9cfc3;
+  --color-stone-400: #b3a99d; /* 次要 icon、placeholder */
+  --color-stone-500: #8a8178; /* 次要文字 */
+  --color-stone-600: #6e665e;
+  --color-stone-700: #5a534c;
+  --color-stone-800: #4b4540; /* 主要文字 */
+  --color-stone-900: #3a352f;
+
+  /* — 主強調色：豆沙 × 可可 — */
+  --color-brand-50: #faf4f1;
+  --color-brand-100: #f2e6e1;
+  --color-brand-200: #e5d1c9;
+  --color-brand-400: #c9a9a3; /* 柔和填色、選取外框 */
+  --color-brand-500: #a9877c; /* 主按鈕（白字對比 ≥ 4.5:1） */
+  --color-brand-600: #8f7064; /* 連結文字、選取狀態 */
+  --color-brand-700: #6f564c; /* 深色強調文字 */
+
+  /* — 收入／正向：柔和鼠尾草綠（不用純綠） — */
+  --color-emerald-50: #eef3ec;
+  --color-emerald-400: #8faa8b;
+  --color-emerald-500: #7a9877;
+  --color-emerald-600: #56755a;
+  --color-emerald-700: #47624b;
+  --color-emerald-800: #3a513f;
+
+  /* — 支出／危險：柔和陶土紅（不用純紅） — */
+  --color-red-50: #fbefec;
+  --color-red-100: #f5ded7;
+  --color-red-200: #ebc5bb;
+  --color-red-500: #b5705f;
+  --color-red-600: #a25c4b;
+  --color-red-700: #8a4b3c;
+
+  /* — 快超過：杏桃橘 — */
+  --color-orange-50: #faf0e6;
+  --color-orange-400: #d9a874;
+  --color-orange-600: #9a7242;
+  --color-orange-700: #835f37;
+
+  /* — 尚未入金／獎勵：蜂蜜 — */
+  --color-amber-50: #fbf4e6;
+  --color-amber-300: #e4c89a;
+  --color-amber-600: #9a7b44;
+  --color-amber-700: #7f6538;
+  --color-amber-800: #6a5430;
+
+  /* — 轉帳／不算收支：霧藍 — */
+  --color-sky-50: #edf1f4;
+  --color-sky-700: #5c7486;
+  --color-sky-800: #4c6070;
+
+  /* — 圓角：整體更圓潤一點 — */
+  --radius-lg: 0.75rem;
+  --radius-xl: 0.9375rem;
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
+
+  /* — 陰影：暖色調、很淡（奶油風不吃重陰影） — */
+  --shadow-xs: 0 1px 2px rgba(75, 69, 64, 0.04);
+  --shadow-sm: 0 1px 2px rgba(75, 69, 64, 0.04), 0 6px 16px -10px rgba(75, 69, 64, 0.16);
+  --shadow-md: 0 2px 6px rgba(75, 69, 64, 0.05), 0 12px 28px -14px rgba(75, 69, 64, 0.22);
+  --shadow-lg: 0 4px 10px rgba(75, 69, 64, 0.06), 0 20px 40px -20px rgba(75, 69, 64, 0.26);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-stone-800);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 數字鍵盤輸入框不顯示上下箭頭 */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 表單底部的送出列：固定在底部導覽列上方（導覽列 4rem + 手機底部安全區） */
+.sticky-submit-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(4rem + env(safe-area-inset-bottom));
+  z-index: 20;
+  margin-inline: auto;
+  max-width: 28rem;
+  border-top: 1px solid var(--color-stone-200);
+  background: color-mix(in srgb, var(--color-white) 94%, transparent);
+  backdrop-filter: blur(10px);
+  padding: 0.75rem;
+}
+
+/* 有送出列的頁面：內容要留出「送出列 + 導覽列」的高度 */
+.pb-submit-bar {
+  padding-bottom: calc(9.5rem + env(safe-area-inset-bottom));
+}
+
+/* ===========================================================================
+   Micro-interaction：只做很輕的回饋，不影響操作速度
+   =========================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  .press {
+    transition: transform 0.12s ease, background-color 0.12s ease;
+  }
+  .press:active {
+    transform: scale(0.985);
+  }
+
+  .rise {
+    animation: rise 0.18s ease-out both;
+  }
+
+  .fade {
+    animation: fade 0.16s ease-out both;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 數字用等寬對齊，金額直排時比較好掃 */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
