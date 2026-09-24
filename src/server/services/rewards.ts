@@ -23,6 +23,10 @@
  *   depositEntryId  舊的「獎金入金」把它換成基金裡的現金
  *   withdrawalId    提列，把它換成一筆 INCOME Transaction
  * 兩個欄位任一個不是 null 就代表已經用掉，不會再被算進餘額，所以不可能重複提列。
+ *
+ * 但「指向一筆已經作廢的收入」不算用掉：那筆收入被作廢時，帳戶的錢已經退回去了，
+ * 如果這裡還當它已提列，那筆錢就會兩邊都不在。所以一律看那筆交易是不是還活著，
+ * 而不是只看 withdrawalId 是不是 null —— 這樣即使標記沒被清乾淨也會自己算對。
  */
 import { Prisma } from "@prisma/client";
 import { prisma, lockBook } from "../db";
@@ -62,6 +66,12 @@ export interface RewardBalance {
 
 const sum = <T>(rows: T[], pick: (r: T) => number) => rows.reduce((a, r) => a + pick(r), 0);
 
+/** 提列的那筆收入還在不在（作廢掉的不算提列過）。 */
+const isLive = (withdrawal: { deletedAt: Date | null } | null | undefined) => !!withdrawal && withdrawal.deletedAt === null;
+
+/** 「還沒被提列走」的條件：沒提列過，或提列的那筆收入已經被作廢。 */
+const NOT_WITHDRAWN = { OR: [{ withdrawalId: null }, { withdrawal: { deletedAt: { not: null } } }] };
+
 /**
  * 兩個人的獎勵餘額（一次算完，給首頁用）。
  *
@@ -74,11 +84,11 @@ export async function rewardBalances(ctx: BookContext): Promise<Map<string, Rewa
   const [rewards, penalties] = await Promise.all([
     prisma.taskReward.findMany({
       where: { bookId, deletedAt: null },
-      select: { userId: true, amount: true, depositEntryId: true, withdrawalId: true },
+      select: { userId: true, amount: true, depositEntryId: true, withdrawal: { select: { deletedAt: true } } },
     }),
     prisma.taskPenalty.findMany({
       where: { bookId, waivedAt: null, amount: { gt: 0 }, userId: { not: null } },
-      select: { userId: true, amount: true, depositEntryId: true, withdrawalId: true },
+      select: { userId: true, amount: true, depositEntryId: true, withdrawal: { select: { deletedAt: true } } },
     }),
   ]);
 
@@ -93,13 +103,13 @@ export async function rewardBalances(ctx: BookContext): Promise<Map<string, Rewa
   for (const r of rewards) {
     const row = slot(r.userId);
     row.earned += r.amount;
-    if (r.depositEntryId || r.withdrawalId) row.settled += r.amount;
+    if (r.depositEntryId || isLive(r.withdrawal)) row.settled += r.amount;
     else row.balance += r.amount;
   }
   for (const p of penalties) {
     const row = slot(p.userId!);
     row.penalised += p.amount;
-    if (!p.depositEntryId && !p.withdrawalId) row.balance -= p.amount;
+    if (!p.depositEntryId && !isLive(p.withdrawal)) row.balance -= p.amount;
   }
   return out;
 }
@@ -120,13 +130,13 @@ export async function rewardStatement(ctx: BookContext, userId: string, opts: { 
   const [rewards, penalties] = await Promise.all([
     prisma.taskReward.findMany({
       where: { bookId, userId, deletedAt: null },
-      include: { task: { select: { title: true } }, checkIn: { select: { date: true } } },
+      include: { task: { select: { title: true } }, checkIn: { select: { date: true } }, withdrawal: { select: { deletedAt: true } } },
       orderBy: { createdAt: "desc" },
       take,
     }),
     prisma.taskPenalty.findMany({
       where: { bookId, userId, waivedAt: null, amount: { gt: 0 } },
-      include: { task: { select: { title: true } } },
+      include: { task: { select: { title: true } }, withdrawal: { select: { deletedAt: true } } },
       orderBy: { date: "desc" },
       take,
     }),
@@ -141,7 +151,7 @@ export async function rewardStatement(ctx: BookContext, userId: string, opts: { 
       createdAt: r.createdAt,
       taskId: r.taskId,
       taskTitle: r.task.title,
-      settled: !!r.depositEntryId || !!r.withdrawalId,
+      settled: !!r.depositEntryId || isLive(r.withdrawal),
     })),
     ...penalties.map((p) => ({
       id: p.id,
@@ -151,7 +161,7 @@ export async function rewardStatement(ctx: BookContext, userId: string, opts: { 
       createdAt: p.createdAt,
       taskId: p.taskId,
       taskTitle: p.task.title,
-      settled: !!p.depositEntryId || !!p.withdrawalId,
+      settled: !!p.depositEntryId || isLive(p.withdrawal),
     })),
   ];
   moves.sort((a, b) => b.occurredOn.getTime() - a.occurredOn.getTime() || b.createdAt.getTime() - a.createdAt.getTime());
@@ -208,8 +218,8 @@ export async function withdrawRewards(ctx: BookContext, input: WithdrawInput) {
       assert(account.ownerId === null || account.ownerId === userId, "REWARD_ACCOUNT_OWNER", "只能提列到自己的帳戶或共同帳戶");
 
       const [rewards, penalties] = await Promise.all([
-        tx.taskReward.findMany({ where: { bookId, userId, deletedAt: null, depositEntryId: null, withdrawalId: null }, select: { id: true, amount: true } }),
-        tx.taskPenalty.findMany({ where: { bookId, userId, waivedAt: null, amount: { gt: 0 }, depositEntryId: null, withdrawalId: null }, select: { id: true, amount: true } }),
+        tx.taskReward.findMany({ where: { bookId, userId, deletedAt: null, depositEntryId: null, ...NOT_WITHDRAWN }, select: { id: true, amount: true } }),
+        tx.taskPenalty.findMany({ where: { bookId, userId, waivedAt: null, amount: { gt: 0 }, depositEntryId: null, ...NOT_WITHDRAWN }, select: { id: true, amount: true } }),
       ]);
       const gross = sum(rewards, (r) => r.amount);
       const deduction = sum(penalties, (p) => p.amount);

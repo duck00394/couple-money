@@ -91,6 +91,42 @@ describe("V4：作廢獎勵提列", () => {
     assert.equal(await prisma.taskPenalty.count({ where: { taskId: bad, waivedAt: null } }), 1, "懲罰沒有被弄不見");
   });
 
+  it("3b. 舊版作廢留下的爛攤子：標記沒清掉，但獎勵照樣算得回來", async () => {
+    const solo = await setupCouple("wcOld");
+    const t = (await tasks.createTask(solo.ctxA, input({ title: "舊版提列", assigneeId: solo.aId, rewardAmount: $(80) }), D(1))).id;
+    await tasks.checkIn(solo.ctxA, t, { today: D(2) });
+    const tx = await rewards.withdrawRewards(solo.ctxA, { accountId: solo.accA, clientRequestId: rid() });
+    assert.equal((await rewards.rewardBalance(solo.ctxA, solo.aId)).balance, 0);
+
+    // 重現舊版的行為：只把交易軟刪除，withdrawalId 留在原地不清
+    await prisma.transaction.update({ where: { id: tx.id }, data: { deletedAt: new Date(), deletedById: solo.aId } });
+    assert.equal(await prisma.taskReward.count({ where: { withdrawalId: tx.id } }), 1, "標記還在（這就是舊版留下的狀態）");
+
+    // 餘額看的是「那筆收入還在不在」，所以錢自己回來了，不用下 SQL 修資料
+    assert.equal((await rewards.rewardBalance(solo.ctxA, solo.aId)).balance, $(80), "獎勵要自己算回來");
+    assert.equal((await ledger.listAccounts(solo.ctxA)).find((a) => a.id === solo.accA)!.balance, 0, "帳戶的錢確實退掉了");
+    const check = await rewards.rewardCheck(solo.ctxA, solo.aId);
+    assert.ok(check.consistent, "餘額與明細對得起來");
+
+    // 而且可以重新提列，不會說「沒有可以提列的獎勵」
+    const again = await rewards.withdrawRewards(solo.ctxA, { accountId: solo.accA, clientRequestId: rid() });
+    assert.equal(again.amount, $(80));
+    assert.equal((await ledger.listAccounts(solo.ctxA)).find((a) => a.id === solo.accA)!.balance, $(80));
+    assert.equal((await rewards.rewardBalance(solo.ctxA, solo.aId)).balance, 0);
+    // 重新提列會把標記改指到新的那筆，不會留著指向已作廢的舊交易
+    assert.equal(await prisma.taskReward.count({ where: { withdrawalId: again.id } }), 1);
+    assert.equal(await prisma.taskReward.count({ where: { withdrawalId: tx.id } }), 0);
+  });
+
+  it("3c. 還活著的提列不會被誤判成可以再提一次", async () => {
+    const solo = await setupCouple("wcLive");
+    const t = (await tasks.createTask(solo.ctxA, input({ title: "正常提列", assigneeId: solo.aId, rewardAmount: $(40) }), D(1))).id;
+    await tasks.checkIn(solo.ctxA, t, { today: D(2) });
+    await rewards.withdrawRewards(solo.ctxA, { accountId: solo.accA, clientRequestId: rid() });
+    assert.equal((await rewards.rewardBalance(solo.ctxA, solo.aId)).balance, 0);
+    await rejects(rewards.withdrawRewards(solo.ctxA, { accountId: solo.accA, clientRequestId: rid() }), "REWARD_NOTHING");
+  });
+
   it("4. 提列出來的收入不能直接改金額（改了會跟那批獎勵對不起來）", async () => {
     const solo = await setupCouple("wc3");
     const t = (await tasks.createTask(solo.ctxA, input({ assigneeId: solo.aId }), D(1))).id;
