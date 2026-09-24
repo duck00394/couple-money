@@ -30,6 +30,9 @@ export default async function TasksPage() {
     { key: "PARTNER", title: `${ctx.partner?.nickname ?? "另一半"}的任務` },
     { key: "SHARED", title: "共同任務" },
   ] as const;
+  // 還沒完成的排前面：打開任務頁第一眼就是「接下來要做什麼」
+  const doable = (c: (typeof board.today)[number]) => c.canCheckIn || !c.today || c.today.status === "REJECTED";
+  const todayRows = [...board.today].sort((a, b) => Number(doable(b)) - Number(doable(a)));
   const streaks = board.cards.filter((c) => c.task.isActive && c.stats.current > 0).sort((a, b) => b.stats.current - a.stats.current).slice(0, 3);
   const pct = (r: { rate: number | null }) => (r.rate === null ? "—" : `${Math.round(r.rate * 100)}%`);
 
@@ -95,9 +98,11 @@ export default async function TasksPage() {
           empty="今天沒有排定的任務"
         />
 
-        <SectionTitle>今日打卡</SectionTitle>
+        <SectionTitle right={<Link href="/tasks/new" className="text-sm text-brand-600">＋ 新任務</Link>}>今天</SectionTitle>
         <Card className="divide-y divide-line p-0">
-          {board.today.length === 0 ? <Empty>今天沒有排定的任務</Empty> : board.today.map((c) => <TaskRow key={`${c.task.id}:${c.subjectKey}`} card={c} ctx={ctx} />)}
+          {todayRows.length === 0
+            ? <Empty icon="sprout" action={<Link href="/tasks/new" className="text-sm font-semibold text-brand-600">建立任務 →</Link>}>今天沒有排定的任務</Empty>
+            : todayRows.map((c) => <TaskRow key={`${c.task.id}:${c.subjectKey}`} card={c} ctx={ctx} />)}
         </Card>
 
         {streaks.length > 0 && (

@@ -8,25 +8,26 @@ import { getAppContext } from "@/server/context";
 import { prisma } from "@/server/db";
 import { ArtIcon } from "@/components/ArtIcon";
 
-/** 更多頁的功能選單（依區塊分組）。 */
+/**
+ * 「更多」只放低頻管理：每天會用到的（首頁・任務・記帳・基金・統計）都在底部導覽。
+ */
 const MENU: Array<{ title: string; items: Array<{ href: string; icon: string; label: string; sub?: string }> }> = [
   {
-    title: "錢",
+    title: "管理",
     items: [
-      { href: "/transactions", icon: "transaction", label: "記帳明細", sub: "搜尋、篩選、批次整理" },
-      { href: "/stats", icon: "stats", label: "統計與報表", sub: "誰掏錢、誰負擔、分類佔比" },
-      { href: "/budgets", icon: "target", label: "每月預算", sub: "只是提醒，不會擋記帳" },
+      { href: "/accounts", icon: "credit-card", label: "帳戶管理", sub: "新增帳戶、餘額、可自由使用的錢" },
       { href: "/categories", icon: "tag", label: "分類管理", sub: "新增、改名、停用" },
-      { href: "/settle", icon: "settle", label: "結算", sub: "把欠款一次結清" },
-      { href: "/accounts", icon: "credit-card", label: "帳戶與餘額", sub: "錢放在哪裡" },
-      { href: "/goals", icon: "piggy-bank", label: "共同基金與目標", sub: "錢要做什麼" },
+      { href: "/recurring", icon: "calendar-clock", label: "固定支出", sub: "房租、訂閱、每月自動提醒" },
+      { href: "/budgets", icon: "coins", label: "每月預算", sub: "只是提醒，不會擋記帳" },
     ],
   },
   {
-    title: "一起",
+    title: "紀錄",
     items: [
-      { href: "/tasks", icon: "check-circle", label: "每日任務與徽章", sub: "打卡、連續天數、獎金" },
-      { href: "/activity", icon: "bell", label: "最近動態", sub: "另一半做了什麼" },
+      { href: "/transactions", icon: "transaction", label: "記帳明細與 CSV", sub: "搜尋、篩選、批次整理、匯出備份" },
+      { href: "/activity", icon: "bell", label: "最近動態", sub: "活動紀錄：誰改了什麼、另一半做了什麼" },
+      { href: "/settle", icon: "settle", label: "結算", sub: "把欠款一次結清" },
+      { href: "/goals", icon: "target", label: "共同目標", sub: "要買什麼、幾月幾號之前" },
     ],
   },
 ];

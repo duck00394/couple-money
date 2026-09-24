@@ -27,6 +27,8 @@ const PAGES: Array<{ path: string; label: string; action?: string }> = [
   { path: "/recurring/new", label: "新增固定支出", action: "建立固定支出" },
   { path: "/stats", label: "統計" },
   { path: "/goals", label: "目標" },
+  { path: "/funds", label: "基金" },
+  { path: "/funds/new", label: "新增基金", action: "建立基金" },
   { path: "/tasks", label: "任務" },
   { path: "/accounts", label: "帳戶" },
   { path: "/settle", label: "結算" },

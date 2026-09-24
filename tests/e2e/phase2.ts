@@ -203,13 +203,19 @@ export async function phase2(a: Page, b: Page) {
   await expect(b.getByTestId("goal-row").filter({ hasText: "日本旅行" })).toBeVisible();
   step("刪除目標：小艾申請 → 阿本拒絕 → 目標保留");
 
+  // V4：首頁改成每日 Dashboard —— 今日任務、今日獎勵、基金進度、最近記帳
   const home = await pageText(a, "/");
   expect(home).toContain("阿本 要還你 $310");
-  expect(home).toContain("日本旅行");
-  expect(home).toContain("58.6%");
-  expect(home).toContain("+$100");
+  expect(home).toContain("今日任務");
+  expect(home).toContain("日本旅遊基金");           // 基金進度直接在首頁
+  expect(home).toContain("還差 $12,400");
+  expect(home).toContain("+$50");                   // 我今天賺到的
   await shot(a, "p2-05-home");
+  // 目標仍然看得到，只是移到「基金」頁與「更多」
+  const funds = await pageText(a, "/funds");
+  expect(funds).toContain("日本旅遊基金");
+  expect(funds).toContain("日本旅行");
   await go(a, "/goals");
   await shot(a, "p2-06-goals");
-  step("首頁：欠款 $310、主要目標 58.6%、今日獎金 +$100");
+  step("首頁 Dashboard：欠款 $310、今日任務、基金進度、今日獎勵 +$50");
 }

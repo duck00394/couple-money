@@ -502,9 +502,10 @@ enum TaskScope {
 }
 
 enum TaskFrequency {
-  DAILY
-  WEEKLY // 每週固定一天
-  CUSTOM // 自選星期幾
+  DAILY // 每天最多一次
+  WEEKLY // 每週一次（固定在選定的那一天）
+  CUSTOM // 自選星期幾，每天最多一次
+  PER_TIME // 每次：做一次賺一次，同一天可以重複完成、不排程、不罰
 }
 
 model Task {
@@ -557,6 +558,8 @@ model CheckIn {
   subjectKey   String // 誰的進度：PERSONAL = userId；SHARED = "COUPLE"
   userId       String // 實際打卡的人
   date         DateTime      @db.Date
+  /// 同一天的第幾次（每日／每週／自訂一律 0；「每次」任務才會 1、2、3…）
+  seq          Int           @default(0)
   status       CheckInStatus
   note         String?
   photoId      String?
@@ -570,7 +573,9 @@ model CheckIn {
   rewards TaskReward[]
   claims  TaskMilestoneClaim[]
 
-  @@unique([taskId, subjectKey, date]) // 同一個進度同一天只有一筆
+  /// 每日／自訂：seq 恆為 0，所以這條唯一鍵就是「同一人同一天只有一筆」的防重複；
+  /// 「每次」任務靠遞增的 seq 讓同一天可以有很多筆。
+  @@unique([taskId, subjectKey, date, seq])
   @@index([bookId, date])
 }
 

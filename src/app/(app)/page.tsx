@@ -1,21 +1,26 @@
 import Link from "next/link";
 import { DebtCard } from "@/components/DebtCard";
-import { GoalRow } from "@/components/GoalCard";
 import { TaskRow } from "@/components/TaskRow";
 import { TxRow } from "@/components/TxRow";
-import { Badge, Card, Empty, SectionTitle } from "@/components/ui";
+import { Badge, Card, Empty, SectionTitle, TwoPartProgress } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
-import { listGoals } from "@/server/services/goals";
+import { listFunds } from "@/server/services/funds";
 import { getBalances, listTransactions, monthSummary } from "@/server/services/ledger";
 import { applyMissedPenalties, taskBoard, todayRewards } from "@/server/services/tasks";
+import { rewardBalance } from "@/server/services/rewards";
 import { pendingRecurring } from "@/server/services/recurring";
 import { budgetSummary } from "@/server/services/budgets";
 import { toDateKey } from "@/lib/dates";
 import { APP } from "@/config/app";
 import { ArtIcon, ArtImage, ArtTile } from "@/components/ArtIcon";
 
-/** 首頁只放最常看的：本月錢的狀況、必要提醒、最近紀錄、今天的任務與主要目標。 */
+/**
+ * 首頁 = 每日 Dashboard。
+ *
+ * 順序就是「每天早上打開 App 會想知道的事」：
+ *   今天要做什麼 → 今天賺了多少 → 錢存到哪了 → 最近花了什麼 → 本月總覽
+ */
 export default async function DashboardPage() {
   const { ctx } = await getAppContext();
   await applyMissedPenalties(ctx);
@@ -24,22 +29,24 @@ export default async function DashboardPage() {
   const todayLabel = new Intl.DateTimeFormat("zh-TW", {
     timeZone: APP.timeZone, month: "long", day: "numeric", weekday: "short",
   }).format(new Date());
-  const [balances, summary, board, rewards, goals, dueRecurring, budgets, recent] = await Promise.all([
+  const [balances, summary, board, rewards, myReward, funds, dueRecurring, budgets, recent] = await Promise.all([
     getBalances(ctx),
     monthSummary(ctx),
     taskBoard(ctx),
     todayRewards(ctx),
-    listGoals(ctx),
+    rewardBalance(ctx, ctx.me.userId),
+    listFunds(ctx),
     pendingRecurring(ctx),
     budgetSummary(ctx, month),
-    listTransactions(ctx, { take: 3 }),
+    listTransactions(ctx, { take: 4 }),
   ]);
-  // 主要目標：進行中且目標日期最近的；沒有日期就取進度最高的
-  const mainGoal = goals
-    .filter((g) => g.status === "ACTIVE")
-    .sort((a, b) => (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999") || b.progress - a.progress)[0];
-  const todo = board.today.filter((c) => c.group !== "PARTNER" && (!c.today || c.today.status === "REJECTED"));
-  const myTodayTotal = board.today.filter((c) => c.group !== "PARTNER").length;
+
+  // 今日任務：我自己那一份（共同任務也算我的），已完成的排到後面
+  const myToday = board.today.filter((c) => c.group !== "PARTNER");
+  const undone = myToday.filter((c) => c.canCheckIn || !c.today || c.today.status === "REJECTED");
+  const sorted = [...myToday].sort((a, b) => Number(undone.includes(b)) - Number(undone.includes(a)));
+  const topFunds = funds.filter((f) => !f.isArchived).slice(0, 3);
+  const fundTotal = funds.filter((f) => !f.isArchived).reduce((a, f) => a + f.balance, 0);
 
   return (
     <div className="px-4 pt-5">
@@ -64,7 +71,7 @@ export default async function DashboardPage() {
         </div>
         <div className="mt-3 flex items-end justify-between gap-3 px-4">
           <div className="min-w-0">
-            <h1 className="hand truncate text-[26px] font-bold leading-none text-stone-800">Couple Money</h1>
+            <h1 className="hand truncate text-[26px] font-bold leading-none text-stone-800">今天</h1>
             <p className="mt-1 truncate text-xs text-stone-500">嗨，{ctx.me.nickname}・{todayLabel}</p>
           </div>
           <Link href="/transactions/new" className="press shrink-0 rounded-full border-[1.5px] border-stone-800 bg-brand-500 px-4 py-2 text-sm font-extrabold text-white shadow-md">
@@ -73,7 +80,86 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      {/* ── 本月財務：首頁最重要的一塊，數字要一眼看到 ── */}
+      {/* ── 1. 今日任務：直接在這裡完成，不用進任務頁 ── */}
+      <SectionTitle
+        right={<Link href="/tasks" className="text-sm text-brand-600">全部任務</Link>}
+      >
+        今日任務{myToday.length > 0 && `（還剩 ${undone.length}/${myToday.length}）`}
+      </SectionTitle>
+      <Card className="divide-y divide-line p-0" data-testid="today-tasks">
+        {myToday.length === 0 ? (
+          <Empty icon="sprout" action={<Link href="/tasks/new" className="text-sm font-semibold text-brand-600">建立任務 →</Link>}>
+            今天沒有排定的任務
+          </Empty>
+        ) : (
+          sorted.slice(0, 6).map((c) => <TaskRow key={`${c.task.id}:${c.subjectKey}`} card={c} ctx={ctx} />)
+        )}
+      </Card>
+
+      {/* ── 2. 今日獎勵 ── */}
+      <SectionTitle right={<Link href="/tasks" className="text-sm text-brand-600">去提領</Link>}>今日獎勵</SectionTitle>
+      <Card className="px-5 py-4" data-testid="today-reward-card">
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-stone-500">今天賺到</p>
+            <p className="amount mt-0.5 text-[1.9rem] text-brand-700" data-testid="today-rewards">
+              +{formatMoney(rewards.byUser.get(ctx.me.userId) ?? 0)}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-xs text-stone-500">我的獎勵餘額</p>
+            <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="reward-balance">{formatMoney(myReward.balance)}</p>
+          </div>
+        </div>
+        {ctx.partner && (
+          <p className="mt-2 border-t border-line pt-2 text-xs text-stone-500">
+            兩個人今天合計 +{formatMoney(rewards.total)}
+          </p>
+        )}
+      </Card>
+
+      {/* ── 3. 基金進度 ── */}
+      <SectionTitle right={<Link href="/funds" className="text-sm text-brand-600">全部基金</Link>}>
+        基金・{formatMoney(fundTotal)}
+      </SectionTitle>
+      <Card className="divide-y divide-line p-0" data-testid="home-funds">
+        {topFunds.length === 0 ? (
+          <Empty icon="piggy-bank" action={<Link href="/funds/new" className="text-sm font-semibold text-brand-600">新增基金 →</Link>}>
+            還沒有基金
+          </Empty>
+        ) : (
+          topFunds.map((f) => (
+            <Link key={f.id} href={`/funds/${f.id}`} className="block px-4 py-3 active:bg-stone-50">
+              <div className="flex items-center gap-3">
+                <ArtTile name={f.emoji} size={36} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-medium text-stone-800">{f.name}</p>
+                  <p className="truncate text-xs text-stone-500">
+                    {f.targetAmount ? `目標 ${formatMoney(f.targetAmount)}・還差 ${formatMoney(f.remaining ?? 0)}` : "未設定目標金額"}
+                  </p>
+                </div>
+                <span className="amount shrink-0 text-stone-800">{formatMoney(f.balance)}</span>
+              </div>
+              {f.targetAmount ? <TwoPartProgress real={f.balance} pending={f.pending} target={f.targetAmount} className="mt-2" /> : null}
+            </Link>
+          ))
+        )}
+      </Card>
+
+      {/* ── 4. 最近記帳 ── */}
+      <SectionTitle right={<Link href="/transactions" className="text-sm text-brand-600">全部紀錄</Link>}>最近記帳</SectionTitle>
+      <Card className="divide-y divide-line p-0">
+        {recent.length === 0 ? (
+          <Empty icon="transaction" action={<Link href="/transactions/new" className="text-sm font-semibold text-brand-600">記第一筆 →</Link>}>
+            還沒有任何紀錄
+          </Empty>
+        ) : (
+          recent.map((tx) => <TxRow key={tx.id} tx={tx} ctx={ctx} />)
+        )}
+      </Card>
+
+      {/* ── 5. 本月總覽 ── */}
+      <SectionTitle>本月</SectionTitle>
       <Link href="/stats" className="press block rounded-3xl bg-white px-5 py-6 shadow-xs ring-1 ring-line/70 active:bg-stone-50" aria-label="本月財務狀況">
         <div className="flex items-baseline justify-between">
           <p className="text-[13px] text-stone-500">我們{summary.label}花了</p>
@@ -89,7 +175,7 @@ export default async function DashboardPage() {
           </div>
           <div>
             <p className="text-xs text-stone-500">收入</p>
-            <p className="amount mt-1 text-[17px] text-emerald-700">{formatMoney(summary.income)}</p>
+            <p className="amount mt-1 text-[17px] text-brand-700">{formatMoney(summary.income)}</p>
           </div>
         </div>
       </Link>
@@ -98,7 +184,7 @@ export default async function DashboardPage() {
         <DebtCard ctx={ctx} debt={balances.debts[0]} />
       </div>
 
-      {/* ── 必要提醒：沒有就完全不佔位置 ── */}
+      {/* ── 提醒：沒有就完全不佔位置 ── */}
       {(dueRecurring.length > 0 || budgets) && (
         <Card className="mt-3.5 divide-y divide-line p-0">
           {dueRecurring.length > 0 && (
@@ -125,66 +211,10 @@ export default async function DashboardPage() {
         </Card>
       )}
 
-      {/* ── 最近紀錄 ── */}
-      <SectionTitle right={<Link href="/transactions" className="text-sm text-brand-600">全部紀錄</Link>}>最近紀錄</SectionTitle>
-      <Card className="divide-y divide-line p-0">
-        {recent.length === 0 ? (
-          <Empty icon="transaction" action={<Link href="/transactions/new" className="text-sm font-semibold text-brand-600">記第一筆 →</Link>}>
-            還沒有任何紀錄
-          </Empty>
-        ) : (
-          recent.map((tx) => <TxRow key={tx.id} tx={tx} ctx={ctx} />)
-        )}
-      </Card>
-
-      {/* ── 今天的任務 ── */}
-      <SectionTitle
-        right={
-          <Link href="/tasks" className="text-sm text-brand-600">
-            {myTodayTotal > 0 ? `還剩 ${todo.length}/${myTodayTotal}` : "全部任務"}
-          </Link>
-        }
-      >
-        今日待完成
-      </SectionTitle>
-      <Card className="divide-y divide-line p-0">
-        <Link href="/tasks" className="flex items-center gap-3 px-4 py-3 text-sm active:bg-stone-50">
-          <ArtTile name="piggy-bank" size={36} />
-          <span className="min-w-0 flex-1">
-            <span className="block">今日任務獎金</span>
-            <span className="block text-[11px] text-stone-400">尚未入金・我 +{formatMoney(rewards.byUser.get(ctx.me.userId) ?? 0)}</span>
-          </span>
-          <span className="amount shrink-0 text-brand-700" data-testid="today-rewards">
-            +{formatMoney(rewards.total)}
-          </span>
-        </Link>
-        {myTodayTotal === 0 ? (
-          <Empty icon="sprout" action={<Link href="/tasks/new" className="text-sm font-semibold text-brand-600">建立任務 →</Link>}>
-            今天沒有任務
-          </Empty>
-        ) : todo.length === 0 ? (
-          <p className="px-5 py-6 text-center text-sm text-emerald-700">今天的任務都完成了</p>
-        ) : (
-          todo.slice(0, 3).map((c) => <TaskRow key={`${c.task.id}:${c.subjectKey}`} card={c} ctx={ctx} />)
-        )}
-      </Card>
-
-      {/* ── 主要目標 ── */}
-      <SectionTitle right={<Link href="/goals" className="text-sm text-brand-600">全部目標</Link>}>主要目標</SectionTitle>
-      <Card className="p-0">
-        {mainGoal ? (
-          <GoalRow goal={mainGoal} big />
-        ) : (
-          <Empty icon="sprout" action={<Link href="/goals/new" className="text-sm font-semibold text-brand-600">設定一個 →</Link>}>
-            還沒有共同目標
-          </Empty>
-        )}
-      </Card>
-
       <p className="mt-9 text-center text-xs leading-relaxed text-stone-400">
+        <Link href="/goals" className="underline underline-offset-2">共同目標</Link>・
         <Link href="/activity" className="underline underline-offset-2">最近動態</Link>・
         <Link href="/settle" className="underline underline-offset-2">結算</Link>・
-        <Link href="/accounts" className="underline underline-offset-2">帳戶</Link>・
         <Link href="/more" className="underline underline-offset-2">更多</Link>
       </p>
     </div>

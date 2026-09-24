@@ -38,13 +38,14 @@ describe("Phase 2-3～2-8：任務、打卡、獎金（尚未入金）、連續�
     // V3 起：獎勵進「個人獎勵餘額」，不再需要先綁基金（fundId 只是預設提列目標）
     const noFund = await tasks.createTask(c.ctxA, input({ title: "不綁基金也能有獎金", fundId: null, milestones: [] }), D(10));
     assert.equal(noFund.fundId, null);
-    await rejects(tasks.createTask(c.ctxA, input({ frequency: "WEEKLY", daysOfWeek: 0b11 })), "TASK_DAYS");
+    // V4 起「每週」= 一週內任意一天完成一次，所以不綁星期幾，也不會因為遮罩被擋
+    await rejects(tasks.createTask(c.ctxA, input({ frequency: "CUSTOM", daysOfWeek: 0 })), "TASK_DAYS");
     await rejects(tasks.createTask(c.ctxA, input({ assigneeId: null })), "TASK_ASSIGNEE");
     english = (await tasks.createTask(c.ctxA, input(), D(10))).id;
     await tasks.createTask(c.ctxA, input({ title: "運動", assigneeId: c.bId, rewardAmount: $(30), milestones: [] }), D(10));
     await tasks.createTask(c.ctxA, input({ title: "一起散步", scope: "SHARED", assigneeId: null, rewardAmount: $(20), milestones: [] }), D(10));
     const weekly = await tasks.createTask(c.ctxA, input({ title: "大掃除", frequency: "WEEKLY", daysOfWeek: 1 << 6, rewardAmount: 0, fundId: null, milestones: [] }), D(10));
-    assert.equal(weekly.daysOfWeek, 64);
+    assert.equal(weekly.daysOfWeek, 127, "每週不綁星期幾");
     const board = await tasks.taskBoard(c.ctxA, D(10));
     assert.deepEqual(board.cards.map((x) => x.group).sort(), ["MINE", "MINE", "MINE", "PARTNER", "SHARED"]);
     const boardB = await tasks.taskBoard(c.ctxB, D(10));
@@ -70,7 +71,10 @@ describe("Phase 2-3～2-8：任務、打卡、獎金（尚未入金）、連續�
 
     await rejects(tasks.checkIn(c.ctxA, english, { today: D(10) }), "CHECKIN_DUP");
     await rejects(tasks.checkIn(c.ctxB, english, { today: D(10) }), "TASK_NOT_MINE");
-    await rejects(tasks.checkIn(c.ctxA, (await prisma.task.findFirst({ where: { title: "大掃除" } }))!.id, { today: D(10) }), "TASK_NOT_TODAY");
+    // V4：「大掃除」是每週任務，不綁星期幾 —— 這一週任何一天都做得到，但一週只能一次
+    const clean = (await prisma.task.findFirst({ where: { title: "大掃除" } }))!.id;
+    await tasks.checkIn(c.ctxA, clean, { today: D(10) });
+    await rejects(tasks.checkIn(c.ctxA, clean, { today: D(11) }), "CHECKIN_WEEK_DUP");
 
     // 共同任務：任一人完成就算完成，另一人不能再打
     const walk = (await prisma.task.findFirst({ where: { title: "一起散步" } }))!.id;

@@ -20,6 +20,7 @@ export default async function AccountsPage() {
     <>
       <PageHeader title="帳戶" back="/more" />
       <div className="px-4">
+        {ctx.canWrite && <div className="mb-4"><NewAccountForm /></div>}
         <MoneyConcepts />
         {groups.map((g) => {
           // 停用的帳戶裡的錢仍然是真的（也會算進轉帳與基金上限），所以小計要一起算
@@ -76,7 +77,6 @@ export default async function AccountsPage() {
         <p className="mt-3 px-1 text-xs text-stone-500">
           餘額由紀錄即時計算：支出會扣款、收入與結算收款會入帳。投入基金只是「指定用途」，不會改變帳戶餘額。
         </p>
-        {ctx.canWrite && <div className="mt-5"><NewAccountForm /></div>}
       </div>
     </>
   );

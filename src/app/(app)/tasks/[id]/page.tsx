@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
 import { ArtIcon } from "@/components/ArtIcon";
-import { CheckInPanel, ReviewButtons, WaivePenaltyButton } from "@/components/CheckInWidgets";
+import { CancelCheckInButton, CheckInPanel, ReviewButtons, WaivePenaltyButton } from "@/components/CheckInWidgets";
+import { DuplicateTaskButton } from "@/components/TaskActions";
 import { TaskForm } from "@/components/TaskForm";
 import { Card, Collapsible, Empty, PageHeader, SectionTitle } from "@/components/ui";
 import { addDays, dateHeading, dbDateToKey, toDateKey, weekStart } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
-import { isScheduled, maskLabel } from "@/server/domain/streak";
+import { FREQUENCY_HINT, isScheduled, maskLabel } from "@/server/domain/streak";
 import { applyMissedPenalties, getTaskDetail } from "@/server/services/tasks";
 import { loadTaskFormProps } from "@/server/taskFormData";
 
@@ -20,9 +21,12 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
   const { task, stats } = d;
   const props = await loadTaskFormProps(ctx);
   const name = (uid: string | null) => (uid === null ? "共同" : uid === ctx.me.userId ? "我" : ctx.members.find((m) => m.userId === uid)?.nickname ?? "");
-  const who = task.scope === "SHARED" ? "共同任務" : `${name(task.assigneeId)}的任務`;
-  const mine = task.scope === "SHARED" || task.assigneeId === ctx.me.userId;
+  const who = task.scope === "SHARED" ? "共同任務" : task.scope === "EACH" ? "兩人各自完成" : `${name(task.assigneeId)}的任務`;
+  // EACH：兩人各自有一份進度，所以對兩個人來說都是「自己的任務」
+  const mine = task.scope === "SHARED" || task.scope === "EACH" || task.assigneeId === ctx.me.userId;
   const start = dbDateToKey(task.startDate);
+  // 每週任務的連續單位是「週」，其他是「天」
+  const unit = d.weekly ? "週" : "天";
 
   // 最近 5 週日曆（週一開始）
   const first = addDays(weekStart(today), -28);
@@ -41,7 +45,7 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
       <PageHeader title={task.title} back="/tasks" />
       <div className="px-4">
         <p className="mb-3 px-1 text-sm text-stone-500">
-          {who}・{maskLabel(task.daysOfWeek)}
+          {who}・<span data-testid="task-frequency">{task.frequency === "CUSTOM" ? `${maskLabel(task.daysOfWeek)}・每天最多一次` : FREQUENCY_HINT[task.frequency as keyof typeof FREQUENCY_HINT]}</span>
           {task.rewardAmount > 0 && `・完成獎金 +${formatMoney(task.rewardAmount)}（記入 ${task.fund?.emoji ?? ""}${task.fund?.name ?? ""} 尚未入金）`}
           {task.requiresApproval && "・需對方確認"}
           {task.requiresPhoto && "・需照片"}
@@ -51,9 +55,53 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
 
         {d.scheduledToday && mine && ctx.canWrite && (
           <Card className="mb-3">
-            <p className="mb-3 font-semibold">今天</p>
-            {d.todayCheckIn && d.todayCheckIn.userId !== ctx.me.userId && (d.todayCheckIn.status === "APPROVED" || d.todayCheckIn.status === "PENDING") ? (
-              <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700" data-testid="checkin-status">
+            <p className="mb-3 font-semibold">{d.weekly ? "這一週" : "今天"}</p>
+            {/* 「每次」：同一天可以做很多次，所以今天是一份清單，而且永遠還能再做一次 */}
+            {d.perTime ? (
+              <div className="space-y-3">
+                <p className="rounded-xl bg-brand-100 px-3 py-2 text-sm font-semibold text-brand-700" data-testid="checkin-status">
+                  {d.todayCount === 0
+                    ? "做一次賺一次，今天還沒有完成過"
+                    : `今天已完成 ${d.todayCount} 次・+${formatMoney(d.todayReward)}`}
+                </p>
+                {d.todayCheckIns.length > 0 && (
+                  <ul className="divide-y divide-line rounded-xl bg-stone-50" data-testid="per-time-list">
+                    {d.todayCheckIns.map((c, i) => (
+                      <li key={c.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                        <span className="flex-1 truncate">
+                          第 {i + 1} 次{c.status === "PENDING" && "（待確認）"}{c.note ? `・${c.note}` : ""}
+                        </span>
+                        <CancelCheckInButton id={c.id} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <CheckInPanel taskId={task.id} requiresPhoto={task.requiresPhoto} existing={null} canCancel={false} submitLabel={d.todayCount > 0 ? "＋ 再完成一次" : "完成一次"} />
+              </div>
+            ) : d.weekly ? (
+              /* 「每週」：一週內任意一天完成一次即可，所以看的是整週不是今天 */
+              d.weekCheckIn ? (
+                <div className="space-y-3">
+                  <p className="rounded-xl bg-brand-100 px-3 py-2 text-sm font-semibold text-brand-700" data-testid="checkin-status">
+                    本週已完成{d.weekCheckIn.userId !== ctx.me.userId && `（${name(d.weekCheckIn.userId)}）`}
+                    {d.weekCheckIn.status === "PENDING" && "・等另一半確認"}
+                    ・{dateHeading(dbDateToKey(d.weekCheckIn.date))}完成，下週才能再做一次
+                  </p>
+                  {d.weekCheckIn.note && <p className="text-sm text-stone-600">備註：{d.weekCheckIn.note}</p>}
+                  {ctx.canWrite && d.weekCheckIn.userId === ctx.me.userId && (
+                    <div className="flex justify-end"><CancelCheckInButton id={d.weekCheckIn.id} /></div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="rounded-xl bg-stone-100 px-3 py-2 text-sm text-stone-600" data-testid="checkin-status">
+                    本週還可以完成一次（這一週的任何一天完成都算）
+                  </p>
+                  <CheckInPanel taskId={task.id} requiresPhoto={task.requiresPhoto} existing={null} canCancel={false} submitLabel="完成本週" />
+                </div>
+              )
+            ) : d.todayCheckIn && d.todayCheckIn.userId !== ctx.me.userId && (d.todayCheckIn.status === "APPROVED" || d.todayCheckIn.status === "PENDING") ? (
+              <p className="rounded-xl bg-brand-100 px-3 py-2 text-sm text-brand-700" data-testid="checkin-status">
                 {name(d.todayCheckIn.userId)} 今天已經完成了{d.todayCheckIn.status === "PENDING" && "（待確認）"}
               </p>
             ) : (
@@ -94,8 +142,8 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
 
         <Card>
           <div className="grid grid-cols-4 text-center">
-            <div><p className="text-2xl font-bold text-orange-600" data-testid="streak-current">{stats.current}</p><p className="text-[11px] text-stone-500">目前連續</p></div>
-            <div><p className="text-2xl font-bold">{stats.longest}</p><p className="text-[11px] text-stone-500">最長連續</p></div>
+            <div><p className="text-2xl font-bold text-orange-600" data-testid="streak-current">{stats.current}</p><p className="text-[11px] text-stone-500">目前連續（{unit}）</p></div>
+            <div><p className="text-2xl font-bold">{stats.longest}</p><p className="text-[11px] text-stone-500">最長連續（{unit}）</p></div>
             <div><p className="text-2xl font-bold">{stats.weekDone}<span className="text-sm text-stone-400">/{stats.weekScheduled}</span></p><p className="text-[11px] text-stone-500">本週</p></div>
             <div><p className="text-2xl font-bold">{stats.monthDone}<span className="text-sm text-stone-400">/{stats.monthScheduled}</span></p><p className="text-[11px] text-stone-500">本月</p></div>
           </div>
@@ -125,10 +173,10 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
             <div key={m.id} className="flex items-center gap-3 px-4 py-3 text-sm" data-testid="milestone">
               <span className={m.claims.length ? "" : "opacity-40 grayscale"}><ArtIcon name={m.badgeEmoji} size={24} /></span>
               <div className="min-w-0 flex-1">
-                <p className="font-medium">連續 {m.days} 天・{m.badgeName}</p>
+                <p className="font-medium">連續 {m.days} {unit}・{m.badgeName}</p>
                 <p className="truncate text-xs text-stone-500">{[m.bonusAmount > 0 && `+${formatMoney(m.bonusAmount)}`, m.rewardText].filter(Boolean).join("・") || "徽章"}</p>
               </div>
-              <span className="text-xs text-stone-500">{m.claims.length ? `達成 ${m.claims.length} 次` : `還差 ${Math.max(0, m.days - stats.current)} 天`}</span>
+              <span className="text-xs text-stone-500">{m.claims.length ? `達成 ${m.claims.length} 次` : `還差 ${Math.max(0, m.days - stats.current)} ${unit}`}</span>
             </div>
           ))}
         </Card>
@@ -174,6 +222,11 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
           }}
         />
         </Collapsible>
+      )}
+      {ctx.canWrite && (
+        <div className="mx-4 mt-4">
+          <DuplicateTaskButton id={task.id} title={task.title} />
+        </div>
       )}
     </>
   );

@@ -41,27 +41,29 @@ function PhotoPicker({ onChange, preview, required }: { onChange: (b: Blob | nul
   );
 }
 
-export function QuickCheckIn({ taskId, title }: { taskId: string; title: string }) {
+export function QuickCheckIn({ taskId, title, label = "打卡" }: { taskId: string; title: string; label?: string }) {
   const [state, action, busy] = useActionState(withToast(checkInAction), undefined);
   return (
-    <div className="flex flex-col items-end">
+    <div className="flex shrink-0 flex-col items-end">
       <form action={action}>
         <input type="hidden" name="taskId" value={taskId} />
-        <button className="rounded-full bg-brand-200 ring-1 ring-brand-400/60 px-4 py-1.5 text-sm font-semibold text-stone-800 active:bg-brand-300 disabled:bg-stone-200 disabled:text-stone-400" disabled={busy} aria-label={`打卡 ${title}`}>
-          {busy ? "…" : "打卡"}
+        <button className="whitespace-nowrap rounded-full bg-brand-200 ring-1 ring-brand-400/60 px-4 py-1.5 text-sm font-semibold text-stone-800 active:bg-brand-300 disabled:bg-stone-200 disabled:text-stone-400" disabled={busy} aria-label={`${label} ${title}`}>
+          {busy ? "…" : label}
         </button>
       </form>
-      {(state?.error || state?.ok) && <span className={cx("mt-1 max-w-44 text-right text-[11px]", state.error ? "text-red-600" : "text-emerald-700")} role="status">{state.error ?? state.ok}</span>}
+      {(state?.error || state?.ok) && <span className={cx("mt-1 max-w-44 text-right text-[11px]", state.error ? "text-red-600" : "text-brand-700")} role="status">{state.error ?? state.ok}</span>}
     </div>
   );
 }
 
 /** 任務詳細頁的打卡面板：打卡（備註＋照片）、修改、取消。 */
-export function CheckInPanel({ taskId, requiresPhoto: requiresPhotoProp, existing, canCancel }: {
+export function CheckInPanel({ taskId, requiresPhoto: requiresPhotoProp, existing, canCancel, submitLabel = "完成打卡" }: {
   taskId: string;
   requiresPhoto: boolean;
   existing: { id: string; status: string; note: string | null; photoId: string | null } | null;
   canCancel: boolean;
+  /** 「每次」任務要說「再完成一次」，不是「完成打卡」 */
+  submitLabel?: string;
 }) {
   // 照片功能關閉時，「需要照片」的任務也要能打卡（不然會卡死）
   const requiresPhoto = requiresPhotoProp && PHOTOS_ENABLED;
@@ -85,15 +87,15 @@ export function CheckInPanel({ taskId, requiresPhoto: requiresPhotoProp, existin
   if (active && !editing) {
     return (
       <div className="space-y-3">
-        <p className={cx("rounded-xl px-3 py-2 text-sm font-semibold", existing.status === "APPROVED" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")} data-testid="checkin-status">
+        <p className={cx("rounded-xl px-3 py-2 text-sm font-semibold", existing.status === "APPROVED" ? "bg-brand-100 text-brand-700" : "bg-amber-50 text-amber-700")} data-testid="checkin-status">
           <ArtIcon name={existing.status === "APPROVED" ? "check" : "hourglass"} size={15} className="mr-1 inline-block align-[-2px]" />
           {existing.status === "APPROVED" ? "今天已完成" : "已打卡，等另一半確認"}
         </p>
         {existing.note && <p className="text-sm text-stone-600">備註：{existing.note}</p>}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {existing.photoId && <img src={`/api/files/${existing.photoId}`} alt="打卡照片" className="max-h-48 rounded-xl object-cover" />}
-        {state?.ok && <p className="text-sm text-emerald-700" role="status">{state.ok}</p>}
-        {editState?.ok && <p className="text-sm text-emerald-700">{editState.ok}</p>}
+        {state?.ok && <p className="text-sm text-brand-700" role="status">{state.ok}</p>}
+        {editState?.ok && <p className="text-sm text-brand-700">{editState.ok}</p>}
         <div className="grid grid-cols-2 gap-2">
           <Button type="button" variant="secondary" onClick={() => setEditing(true)}>修改</Button>
           {canCancel && (
@@ -124,11 +126,23 @@ export function CheckInPanel({ taskId, requiresPhoto: requiresPhotoProp, existin
         </div>
       ) : (
         <Button type="button" className="w-full" disabled={busy || (requiresPhoto && !photo)} onClick={() => submit(action, { taskId })}>
-          {busy ? "打卡中…" : "完成打卡"}
+          {busy ? "打卡中…" : submitLabel}
         </Button>
       )}
-      {state?.ok && <p className="text-sm text-emerald-700" role="status">{state.ok}</p>}
+      {state?.ok && <p className="text-sm text-brand-700" role="status">{state.ok}</p>}
     </div>
+  );
+}
+
+/** 取消某一次打卡（「每次」任務今天有很多筆，每一筆都可以單獨收回）。 */
+export function CancelCheckInButton({ id }: { id: string }) {
+  const [state, action, busy] = useActionState(withToast(cancelCheckInAction), undefined);
+  return (
+    <form action={action} onSubmit={(e) => { if (!confirm("收回這一次？這次的獎金會一起收回。")) e.preventDefault(); }}>
+      <input type="hidden" name="id" value={id} />
+      <button className="text-xs text-stone-500 underline" disabled={busy} aria-label="收回這一次">{busy ? "…" : "收回"}</button>
+      {state?.error && <span className="ml-1 text-xs text-red-600">{state.error}</span>}
+    </form>
   );
 }
 
@@ -145,7 +159,7 @@ export function ReviewButtons({ id, label }: { id: string; label?: string }) {
         <form action={action}>
           <input type="hidden" name="id" value={id} />
           <input type="hidden" name="approve" value="true" />
-          <button className="rounded-full bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white" disabled={busy} aria-label={`確認完成 ${label ?? ""}`.trim()}>確認完成</button>
+          <button className="rounded-full bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white" disabled={busy} aria-label={`確認完成 ${label ?? ""}`.trim()}>確認完成</button>
         </form>
       </div>
       {state?.error && <span className="text-xs text-red-600">{state.error}</span>}

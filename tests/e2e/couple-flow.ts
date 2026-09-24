@@ -19,6 +19,7 @@ import { phase3Categories } from "./phase3-4d";
 import { phase3Budgets } from "./phase3-4b";
 import { phase3Batch } from "./phase3-4f";
 import { phase4Ui } from "./phase4-ui";
+import { v4Daily } from "./v4-daily";
 import { uxAudit } from "./ux-audit";
 
 /** 後續階段的流程依序接在 Phase 1 之後執行（兩人帳號延續使用）。 */
@@ -36,6 +37,7 @@ const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
   ["phase3-4b budgets", phase3Budgets],
   ["phase3-4f batch", phase3Batch],
   ["phase4 ui+avatar", phase4Ui],
+  ["v4 daily", v4Daily],
   ["ux audit", async (a) => uxAudit(a)],
 ];
 

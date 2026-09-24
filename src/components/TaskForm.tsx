@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { deleteTaskAction, saveTaskAction } from "@/app/actions/tasks";
+import { FREQUENCY_HINT } from "@/server/domain/streak";
 import { parseAmount, toInputString } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { Button, cx, ErrorText, Field, Input, Select, inputClass } from "./ui";
@@ -11,7 +12,11 @@ import { ArtIcon } from "./ArtIcon";
 
 const DAYS = ["日", "一", "二", "三", "四", "五", "六"];
 const TASK_ICONS = ["check-circle", "book", "run", "dumbbell", "sparkles", "droplet", "moon", "brush", "chef-hat", "phone-off", "mail", "walk"] as const;
-const BADGE_ICONS = ["medal", "trophy", "sprout", "flame", "dumbbell", "sparkles", "heart", "target"] as const;
+/** 徽章圖示：下拉選單只能放文字，所以每個圖示配一個看得懂的中文名字。 */
+const BADGE_ICONS = [
+  ["medal", "獎牌"], ["trophy", "獎盃"], ["sprout", "新芽"], ["flame", "火焰"],
+  ["dumbbell", "啞鈴"], ["sparkles", "閃亮"], ["heart", "愛心"], ["target", "靶心"],
+] as const;
 
 export interface TaskFormValues {
   id?: string;
@@ -20,7 +25,7 @@ export interface TaskFormValues {
   emoji: string;
   scope: "PERSONAL" | "SHARED" | "EACH";
   assigneeId: string | null;
-  frequency: "DAILY" | "WEEKLY" | "CUSTOM";
+  frequency: "DAILY" | "WEEKLY" | "CUSTOM" | "PER_TIME";
   daysOfWeek: number;
   requiresApproval: boolean;
   requiresPhoto: boolean;
@@ -68,7 +73,7 @@ export function TaskForm({ me, partner, funds, values, creatorName, isCreator = 
   const [state, action, pending] = useActionState(saveTaskAction, undefined);
   const [delState, del, deleting] = useActionState(deleteTaskAction, undefined);
 
-  const effectiveMask = frequency === "DAILY" ? 127 : mask;
+  const effectiveMask = frequency === "CUSTOM" ? mask : 127;
   const payload = JSON.stringify({
     title,
     description,
@@ -121,16 +126,23 @@ export function TaskForm({ me, partner, funds, values, creatorName, isCreator = 
         <fieldset disabled={locked} className="space-y-4 disabled:opacity-60">
         <div className="rounded-2xl bg-white p-4 shadow-sm">
           <p className="mb-2 text-sm font-semibold">週期</p>
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-stone-100 p-1">
-            {([["DAILY", "每日"], ["WEEKLY", "每週"], ["CUSTOM", "自訂"]] as const).map(([f, l]) => (
-              <button key={f} type="button" onClick={() => { setFrequency(f); if (f === "WEEKLY") setMask(1 << 6); if (f === "CUSTOM" && mask === 127) setMask(0b0111110); }} className={cx("h-9 rounded-lg text-sm", frequency === f ? "bg-white font-semibold shadow-sm" : "text-stone-500")}>{l}</button>
+          <div className="grid grid-cols-4 gap-1 rounded-xl bg-stone-100 p-1">
+            {([["DAILY", "每日"], ["WEEKLY", "每週"], ["PER_TIME", "每次"], ["CUSTOM", "自訂"]] as const).map(([f, l]) => (
+              <button key={f} type="button" onClick={() => { setFrequency(f); if (f === "CUSTOM" && mask === 127) setMask(0b0111110); if (f === "PER_TIME") { setPenalty(""); setPenaltyText(""); } }} className={cx("h-9 rounded-lg text-sm", frequency === f ? "bg-white font-semibold shadow-sm" : "text-stone-500")}>{l}</button>
             ))}
           </div>
-          {frequency !== "DAILY" && (
+          <p className="mt-2 text-xs text-stone-600">{FREQUENCY_HINT[frequency]}</p>
+          {frequency === "PER_TIME" && (
+            <p className="mt-1 text-xs text-brand-700">做一次就拿一次獎勵，沒做也不會被扣錢。</p>
+          )}
+          {frequency === "WEEKLY" && (
+            <p className="mt-1 text-xs text-brand-700">不綁星期幾：這一週的任何一天完成都算，完成後要等下一週才能再做一次。</p>
+          )}
+          {frequency === "CUSTOM" && (
             <div className="mt-3 grid grid-cols-7 gap-1.5">
               {DAYS.map((d, i) => (
                 <button key={d} type="button" aria-pressed={!!(mask & (1 << i))} aria-label={`週${d}`}
-                  onClick={() => setMask(frequency === "WEEKLY" ? 1 << i : mask ^ (1 << i))}
+                  onClick={() => setMask(mask ^ (1 << i))}
                   className={cx("h-10 rounded-lg text-sm", mask & (1 << i) ? "bg-brand-200 font-semibold text-stone-800" : "bg-stone-100 text-stone-500")}>
                   {d}
                 </button>
@@ -147,32 +159,43 @@ export function TaskForm({ me, partner, funds, values, creatorName, isCreator = 
 
         <div className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
           <p className="text-sm font-semibold">獎金與懲罰</p>
-          <Field label="獎金／懲罰進出哪個基金" hint={funds.length === 0 ? "還沒有基金，請先到「目標」建立基金" : "獎金先記為「尚未入金」，到基金頁入金後才變成實際基金金額"}>
+          <Field label="獎金／懲罰進出哪個基金" hint={funds.length === 0 ? "還沒有基金，請先到「基金」頁建立" : "獎金先記為「尚未入金」，到基金頁入金後才變成實際基金金額"}>
             <Select value={fundId} onChange={(e) => setFundId(e.target.value)} aria-label="獎金基金">
               <option value="">不連結基金（無金額）</option>
               {funds.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
             </Select>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="完成獎金"><Input aria-label="完成獎金" inputMode="decimal" value={reward} onChange={(e) => setReward(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" /></Field>
-            <Field label="漏做扣款"><Input aria-label="漏做扣款" inputMode="decimal" value={penalty} onChange={(e) => setPenalty(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" /></Field>
-          </div>
-          <Field label="非金錢懲罰（選填）" hint="排定日沒有完成，隔天會自動記一次懲罰（建立當天不算）">
-            <Input aria-label="非金錢懲罰" value={penaltyText} onChange={(e) => setPenaltyText(e.target.value)} maxLength={100} placeholder="例如：洗碗一次" />
-          </Field>
+          {/* 「每次」沒有「漏做」的概念，所以不給懲罰欄位（後端也會擋） */}
+          {frequency === "PER_TIME" ? (
+            <>
+              <Field label="完成一次的獎金"><Input aria-label="完成獎金" inputMode="decimal" value={reward} onChange={(e) => setReward(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" /></Field>
+              <p className="text-xs text-stone-600">做一次就拿一次，做兩次就拿兩次。沒做不會被扣錢，所以沒有懲罰欄位。</p>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="完成獎金"><Input aria-label="完成獎金" inputMode="decimal" value={reward} onChange={(e) => setReward(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" /></Field>
+                <Field label="漏做扣款"><Input aria-label="漏做扣款" inputMode="decimal" value={penalty} onChange={(e) => setPenalty(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" /></Field>
+              </div>
+              <Field label="非金錢懲罰（選填）" hint="排定日沒有完成，隔天會自動記一次懲罰（建立當天不算）">
+                <Input aria-label="非金錢懲罰" value={penaltyText} onChange={(e) => setPenaltyText(e.target.value)} maxLength={100} placeholder="例如：洗碗一次" />
+              </Field>
+            </>
+          )}
         </div>
 
         <div className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
           <p className="text-sm font-semibold">連續打卡里程碑</p>
+          {frequency === "WEEKLY" && <p className="text-xs text-stone-600">每週任務數的是「連續幾週都有完成」。</p>}
           {milestones.map((m, i) => (
             <div key={i} className="space-y-2 rounded-xl bg-stone-50 p-3 text-sm" data-testid="milestone-row">
               <div className="flex items-center gap-2">
-                <select aria-label={`里程碑${i + 1}徽章圖示`} value={toIconKey(m.badgeEmoji)} onChange={(e) => setMs(i, { badgeEmoji: e.target.value })} className="h-10 w-20 rounded-lg border border-stone-200 bg-white px-1 text-xs">
-                  {BADGE_ICONS.map((k) => <option key={k} value={k}>{k}</option>)}
+                <select aria-label={`里程碑${i + 1}徽章圖示`} value={toIconKey(m.badgeEmoji)} onChange={(e) => setMs(i, { badgeEmoji: e.target.value })} className="h-10 w-24 rounded-lg border border-stone-200 bg-white px-1 text-xs">
+                  {BADGE_ICONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                 </select>
                 <span>連續</span>
                 <input aria-label={`里程碑${i + 1}天數`} inputMode="numeric" value={m.days} onChange={(e) => setMs(i, { days: e.target.value.replace(/\D/g, "") })} className="h-10 w-14 rounded-lg border border-stone-200 bg-white text-center" />
-                <span>天</span>
+                <span>{frequency === "WEEKLY" ? "週" : "天"}</span>
                 <button type="button" className="ml-auto px-2 text-stone-400" onClick={() => setMilestones(milestones.filter((_, j) => j !== i))} aria-label={`移除里程碑${i + 1}`}><ArtIcon name="close" size={14} /></button>
               </div>
               <div className="grid grid-cols-2 gap-2">

@@ -7,16 +7,16 @@ import { getAppContext } from "@/server/context";
 import { DomainError } from "@/server/domain/errors";
 import { formatMoney } from "@/lib/money";
 import { saveUpload } from "@/server/services/attachments";
-import { cancelCheckIn, checkIn, createTask, deleteTask, editCheckIn, reviewCheckIn, updateTask, waivePenalty } from "@/server/services/tasks";
+import { cancelCheckIn, checkIn, createTask, deleteTask, duplicateTask, editCheckIn, reviewCheckIn, updateTask, waivePenalty } from "@/server/services/tasks";
 import { str, toActionState, type ActionState } from "@/server/actions";
 
 const schema = z.object({
   title: z.string(),
   description: z.string(),
   emoji: z.string(),
-  scope: z.enum(["PERSONAL", "SHARED"]),
+  scope: z.enum(["PERSONAL", "SHARED", "EACH"]),
   assigneeId: z.string().nullable(),
-  frequency: z.enum(["DAILY", "WEEKLY", "CUSTOM"]),
+  frequency: z.enum(["DAILY", "WEEKLY", "CUSTOM", "PER_TIME"]),
   daysOfWeek: z.number().int(),
   requiresApproval: z.boolean(),
   requiresPhoto: z.boolean(),
@@ -111,4 +111,17 @@ export async function waivePenaltyAction(_: ActionState, form: FormData): Promis
   });
   revalidatePath("/", "layout");
   return state;
+}
+
+/** 複製任務：只帶設定，不帶任何歷史紀錄。 */
+export async function duplicateTaskAction(_: ActionState, form: FormData): Promise<ActionState> {
+  let created: string | null = null;
+  const state = await toActionState(async () => {
+    const { ctx } = await getAppContext();
+    const task = await duplicateTask(ctx, str(form, "id"));
+    created = task.id;
+  });
+  revalidatePath("/", "layout");
+  if (state?.error) return state;
+  redirect(`/tasks/${created}`);
 }

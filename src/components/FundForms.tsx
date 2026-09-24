@@ -21,7 +21,7 @@ export interface FundFormValues {
   updatedAt?: string;
 }
 
-export function FundForm({ values }: { values: FundFormValues }) {
+export function FundForm({ values, openingAccounts = [] }: { values: FundFormValues; openingAccounts?: Array<{ id: string; label: string }> }) {
   const [state, action, pending] = useActionState(saveFundAction, undefined);
   return (
     <ActionForm action={action} className="space-y-4">
@@ -41,6 +41,24 @@ export function FundForm({ values }: { values: FundFormValues }) {
           <input type="checkbox" name="isArchived" value="true" defaultChecked={values.isArchived} className="h-5 w-5 accent-brand-500" />
           封存（不能再投入，紀錄保留）
         </label>
+      )}
+      {/* 新建立時才有：一開就先把錢指定進來，不用再跑一次「投入」 */}
+      {!values.id && openingAccounts.length > 0 && (
+        <div className="rounded-2xl bg-brand-50 p-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="初始金額（選填）">
+              <Input name="openingAmount" inputMode="decimal" placeholder="0" data-testid="fund-opening" />
+            </Field>
+            <Field label="這筆錢放在">
+              <Select name="openingAccountId" defaultValue={openingAccounts[0].id}>
+                {openingAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+              </Select>
+            </Field>
+          </div>
+          <p className="mt-2 text-xs text-stone-600">
+            錢不會被搬走，只是把這個帳戶裡「還沒被指定用途」的錢指定給這個基金。留白就先建立空的基金。
+          </p>
+        </div>
       )}
       <ErrorText>{state?.error}</ErrorText>
       {state?.ok && <p className="text-sm text-emerald-600">{state.ok}</p>}

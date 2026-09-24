@@ -3,7 +3,7 @@
  * daysOfWeek 位元遮罩：bit0 = 週日 … bit6 = 週六；127 = 每天。
  * 「連續」是指連續的「排定日」都有打卡：週一三五的任務，一三五都打卡就算連續，不看週二。
  */
-import { addDays, dayOfWeek } from "../../lib/dates";
+import { addDays, dayOfWeek, weekStart } from "../../lib/dates";
 
 export const EVERY_DAY = 127;
 
@@ -92,18 +92,90 @@ export function maskLabel(mask: number): string {
   return "每週" + names.filter((_, i) => mask & (1 << i)).join("、");
 }
 
-export type TaskFrequency = "DAILY" | "WEEKLY" | "CUSTOM";
+export type TaskFrequency = "DAILY" | "WEEKLY" | "CUSTOM" | "PER_TIME";
 
-/** 依頻率整理星期遮罩：每日 = 全部；每週 = 只能一天；自訂 = 至少一天。 */
+/** 「每次」：做一次賺一次，不排程、同一天可以重複完成、不產生懲罰。 */
+export const isPerTime = (f: string) => f === "PER_TIME";
+
+/**
+ * 「每週」：一週內任意一天完成一次即可（不綁星期幾）。
+ * 所以排程遮罩是每天，真正的限制是「同一個人、同一個任務、同一週最多一筆」。
+ */
+export const isWeekly = (f: string) => f === "WEEKLY";
+
+export const FREQUENCY_LABEL: Record<TaskFrequency, string> = {
+  DAILY: "每日",
+  WEEKLY: "每週",
+  CUSTOM: "自訂",
+  PER_TIME: "每次",
+};
+
+/** 給使用者看的一句話說明（任務卡片與建立畫面都用這個，不要出現 DAILY/WEEKLY 這種字）。 */
+export const FREQUENCY_HINT: Record<TaskFrequency, string> = {
+  DAILY: "每天最多一次",
+  WEEKLY: "一週內完成一次即可",
+  CUSTOM: "選定的日子每天最多一次",
+  PER_TIME: "做一次賺一次，同一天可以重複完成",
+};
+
+/** 連續的單位：每週任務數的是「週」，其他數的是「天」。 */
+export const STREAK_UNIT: Record<TaskFrequency, string> = {
+  DAILY: "天", WEEKLY: "週", CUSTOM: "天", PER_TIME: "次",
+};
+
+/**
+ * 依頻率整理星期遮罩。
+ * 每日／每週／每次都不綁星期幾（每週的限制是「一週一次」，不是「星期幾」），
+ * 只有「自訂」才真的用到遮罩，而且至少要選一天。
+ */
 export function normalizeSchedule(frequency: TaskFrequency, mask: number): number {
-  if (frequency === "DAILY") return EVERY_DAY;
+  if (frequency === "DAILY" || frequency === "PER_TIME" || frequency === "WEEKLY") return EVERY_DAY;
   const m = mask & EVERY_DAY;
-  if (frequency === "WEEKLY") {
-    if (m === 0 || (m & (m - 1)) !== 0) throw new Error("WEEKLY_ONE_DAY");
-    return m;
-  }
   if (m === 0) throw new Error("CUSTOM_EMPTY");
   return m;
+}
+
+// ───────────────────────── 每週任務的「週」統計 ─────────────────────────
+
+/** 把打卡日期換算成「那一週的星期一」。 */
+export const weeksOf = (dates: Iterable<string>) => new Set([...dates].map(weekStart));
+
+/**
+ * 每週任務的連續週數：從這週（或上一週，如果這週還沒做）往回數。
+ * 這週還沒完成不算中斷 —— 跟每日任務「今天還沒打卡不會中斷」是同一個原則。
+ */
+export function currentWeekStreak(weeks: ReadonlySet<string>, startKey: string, todayKey: string) {
+  const startWeek = weekStart(startKey);
+  let cursor = weeks.has(weekStart(todayKey)) ? weekStart(todayKey) : addDays(weekStart(todayKey), -7);
+  let length = 0;
+  let startDate: string | null = null;
+  while (cursor >= startWeek && weeks.has(cursor)) {
+    length++;
+    startDate = cursor;
+    cursor = addDays(cursor, -7);
+  }
+  return { length, startDate };
+}
+
+/** 歷史最長連續週數。 */
+export function longestWeekStreak(weeks: ReadonlySet<string>): number {
+  let best = 0;
+  for (const w of weeks) {
+    if (weeks.has(addDays(w, -7))) continue; // 不是一段的起點
+    let len = 0;
+    for (let c = w; weeks.has(c); c = addDays(c, 7)) len++;
+    best = Math.max(best, len);
+  }
+  return best;
+}
+
+/** [fromKey, toKey] 之間有幾個「週」（每週任務的分母）。 */
+export function weekCount(fromKey: string, toKey: string, startKey: string): number {
+  const from = fromKey < startKey ? startKey : fromKey;
+  if (from > toKey) return 0;
+  let n = 0;
+  for (let w = weekStart(from); w <= toKey; w = addDays(w, 7)) n++;
+  return n;
 }
 
 /** [fromKey, toKey] 之間排定日的數量。 */

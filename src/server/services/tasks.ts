@@ -11,7 +11,7 @@
 import { Prisma, type Task, type TaskMilestone } from "@prisma/client";
 import { prisma, lockBook, type Tx } from "../db";
 import { assert, DomainError } from "../domain/errors";
-import { currentStreak, EVERY_DAY, isScheduled, longestStreak, normalizeSchedule, reachedMilestones, scheduledCount, streakEndingAt, type TaskFrequency } from "../domain/streak";
+import { currentStreak, currentWeekStreak, EVERY_DAY, isPerTime, isScheduled, isWeekly, longestStreak, longestWeekStreak, normalizeSchedule, reachedMilestones, scheduledCount, streakEndingAt, weekCount, weeksOf, type TaskFrequency } from "../domain/streak";
 import { MAX_AMOUNT } from "@/lib/money";
 import { addDays, dbDateToKey, eachDay, keyToDbDate, monthStartKey, toDateKey, weekStart } from "@/lib/dates";
 import { assertCanWrite, type BookContext } from "./books";
@@ -97,11 +97,15 @@ async function validateTask(client: Tx | typeof prisma, ctx: BookContext, input:
   let daysOfWeek: number;
   try {
     daysOfWeek = normalizeSchedule(input.frequency, input.daysOfWeek);
-  } catch (e) {
-    throw new DomainError("TASK_DAYS", (e as Error).message === "WEEKLY_ONE_DAY" ? "每週任務請選一天" : "至少選一天");
+  } catch {
+    throw new DomainError("TASK_DAYS", "至少選一天");
   }
   money(input.rewardAmount, "獎金");
   money(input.penaltyAmount, "懲罰");
+  // 「每次」是做一次賺一次，沒做不算失敗，所以不接受懲罰設定
+  if (isPerTime(input.frequency)) {
+    assert(input.penaltyAmount === 0 && !input.penaltyText.trim(), "TASK_PER_TIME_PENALTY", "「每次」任務沒有漏做的概念，不能設定懲罰");
+  }
   assert(input.penaltyText.length <= 100, "TASK_PENALTY_TEXT", "懲罰內容最多 100 個字");
   const days = new Set<number>();
   for (const m of input.milestones) {
@@ -167,6 +171,47 @@ export async function createTask(ctx: BookContext, input: TaskInput, today = toD
   });
 }
 
+/**
+ * 複製任務：只帶設定，不帶任何歷史。
+ *
+ * 實作方式是「把舊任務的欄位組成 TaskInput 再呼叫 createTask()」，
+ * 所以驗證規則、懲罰起算日、里程碑建立全部與手動新增完全一致，
+ * 不會有第二套建立邏輯。CheckIn / TaskReward / TaskPenalty /
+ * TaskMilestoneClaim / UserAchievement 一筆都不會帶過去。
+ */
+export async function duplicateTask(ctx: BookContext, taskId: string, today = toDateKey(new Date())) {
+  assertCanWrite(ctx);
+  const src = await prisma.task.findFirst({
+    where: { id: taskId, bookId: ctx.book.id, deletedAt: null },
+    include: { milestones: { orderBy: { days: "asc" } } },
+  });
+  assert(src, "TASK_NOT_FOUND", "找不到任務");
+  const input: TaskInput = {
+    title: `${src.title} (複製)`.slice(0, 30),
+    description: src.description ?? "",
+    emoji: src.emoji,
+    scope: src.scope,
+    assigneeId: src.assigneeId,
+    frequency: src.frequency,
+    daysOfWeek: src.daysOfWeek,
+    requiresApproval: src.requiresApproval,
+    requiresPhoto: src.requiresPhoto,
+    rewardAmount: src.rewardAmount,
+    fundId: src.fundId,
+    penaltyAmount: src.penaltyAmount,
+    penaltyText: src.penaltyText ?? "",
+    isActive: true,
+    milestones: src.milestones.map((m) => ({
+      days: m.days,
+      bonusAmount: m.bonusAmount,
+      badgeEmoji: m.badgeEmoji,
+      badgeName: m.badgeName,
+      rewardText: m.rewardText ?? "",
+    })),
+  };
+  return createTask(ctx, input, today);
+}
+
 export async function updateTask(ctx: BookContext, taskId: string, input: TaskInput, today = toDateKey(new Date()), expectedUpdatedAt?: string | null) {
   assertCanWrite(ctx);
   // 先用「舊設定」把到昨天為止的懲罰結算完，再套用新設定，避免新設定回溯影響過去
@@ -198,7 +243,7 @@ export async function updateTask(ctx: BookContext, taskId: string, input: TaskIn
         : before.penaltyStartDate;
     await tx.task.update({ where: { id: taskId }, data: { ...data, penaltyStartDate } });
     // 停用不能規避懲罰：執行者在「今天要做、還沒完成」的日子停用任務，今天照樣記一次懲罰
-    if (before.isActive && !data.isActive && hasPenalty(before) && before.penaltyStartDate) {
+    if (before.isActive && !data.isActive && hasPenalty(before) && before.penaltyStartDate && !isPerTime(before.frequency)) {
       const todayDb = keyToDbDate(today);
       const due = isScheduled(today, before.daysOfWeek, dbDateToKey(before.startDate)) && before.penaltyStartDate <= todayDb;
       // EACH 是兩份進度，只補「自己」那一份；PERSONAL 只有執行者本人算數；SHARED 維持原本的單一進度
@@ -312,7 +357,11 @@ async function grantRewards(tx: Tx, ctx: BookContext, task: TaskFull, ci: { id: 
 
   const checked = await approvedDates(tx, task.id, ci.subjectKey);
   const dateKey = dbDateToKey(ci.date);
-  const streak = streakEndingAt(checked, task.daysOfWeek, dbDateToKey(task.startDate), dateKey);
+  // 「每週」的里程碑數的是連續「週」數（streakStartDate 也是那一段的第一個週一），
+  // 其他週期數的是連續「天」數。
+  const streak = isWeekly(task.frequency)
+    ? currentWeekStreak(weeksOf([...checked].filter((d) => d <= dateKey)), dbDateToKey(task.startDate), dateKey)
+    : streakEndingAt(checked, task.daysOfWeek, dbDateToKey(task.startDate), dateKey);
   const reached: ReachedMilestone[] = [];
   for (const m of reachedMilestones(task.milestones, streak.length)) {
     const streakStartDate = keyToDbDate(streak.startDate!);
@@ -375,7 +424,35 @@ export async function checkIn(ctx: BookContext, taskId: string, opts: { note?: s
       // EACH：subjectKey 是「我自己」，所以另一半今天完成了也完全不影響我
       const subjectKey = subjectKeyFor(task, ctx.me.userId);
       const date = keyToDbDate(today);
-      const existing = await tx.checkIn.findUnique({ where: { taskId_subjectKey_date: { taskId, subjectKey, date } } });
+      const perTime = isPerTime(task.frequency);
+
+      // 「每次」：同一天可以做很多次，每次都是新的一筆（seq 往上加）
+      // 其他週期：seq 恆為 0，唯一鍵照舊擋住同一天的第二次
+      let seq = 0;
+      if (perTime) {
+        const last = await tx.checkIn.findFirst({ where: { taskId, subjectKey, date }, orderBy: { seq: "desc" }, select: { seq: true } });
+        seq = (last?.seq ?? -1) + 1;
+      }
+      // 「每週」：一週內任意一天完成一次即可，所以限制是「這一週」而不是「今天」。
+      // 一週的範圍是週一到週日；下一週自動重新開放。
+      if (isWeekly(task.frequency)) {
+        const ws = weekStart(today);
+        const inWeek = await tx.checkIn.findFirst({
+          where: {
+            taskId, subjectKey,
+            date: { gte: keyToDbDate(ws), lte: keyToDbDate(addDays(ws, 6)) },
+            status: { in: ["APPROVED", "PENDING"] },
+          },
+          select: { userId: true },
+        });
+        if (inWeek) {
+          throw new DomainError(
+            "CHECKIN_WEEK_DUP",
+            inWeek.userId === ctx.me.userId ? "這週已經完成過了，下週才能再做一次" : "另一半這週已經完成了",
+          );
+        }
+      }
+      const existing = perTime ? null : await tx.checkIn.findUnique({ where: { taskId_subjectKey_date_seq: { taskId, subjectKey, date, seq: 0 } } });
       if (existing && (existing.status === "PENDING" || existing.status === "APPROVED")) {
         throw new DomainError("CHECKIN_DUP", existing.userId === ctx.me.userId ? "今天已經打卡過了" : "另一半今天已經完成了");
       }
@@ -384,7 +461,7 @@ export async function checkIn(ctx: BookContext, taskId: string, opts: { note?: s
       const base = { userId: ctx.me.userId, status, note, reviewedById: null, reviewedAt: null, reviewNote: null, cancelledAt: null } as const;
       const ci = existing
         ? await tx.checkIn.update({ where: { id: existing.id }, data: base })
-        : await tx.checkIn.create({ data: { ...base, bookId: ctx.book.id, taskId, subjectKey, date } });
+        : await tx.checkIn.create({ data: { ...base, bookId: ctx.book.id, taskId, subjectKey, date, seq } });
       const photoId = await attachPhoto(tx, ctx, opts.photoId, ci.id);
       const saved = photoId ? await tx.checkIn.update({ where: { id: ci.id }, data: { photoId } }) : ci;
       const result = status === "APPROVED" ? await grantRewards(tx, ctx, task, saved) : { streak: 0, reached: [] as ReachedMilestone[] };
@@ -476,19 +553,35 @@ export async function applyMissedPenalties(ctx: BookContext, today = toDateKey(n
       where: { bookId: ctx.book.id, deletedAt: null, isActive: true, penaltyStartDate: { not: null } },
     });
     for (const task of tasks) {
-      if (!hasPenalty(task)) continue;
+      if (!hasPenalty(task) || isPerTime(task.frequency)) continue; // 「每次」沒有漏做的概念
       const startKey = dbDateToKey(task.startDate);
       const penaltyFrom = dbDateToKey(task.penaltyStartDate!);
       const from = [penaltyFrom, startKey, addDays(today, -PENALTY_LOOKBACK_DAYS)].sort().at(-1)!;
       if (from > yesterday) continue;
+      const weekly = isWeekly(task.frequency);
+      // 「每週」是整整一週沒做才算漏做，所以要看到上週日為止的「完整的週」，
+      // 而且一週最多一筆懲罰（記在那一週的星期日）。
+      const until = weekly ? addDays(weekStart(today), -1) : yesterday;
+      if (from > until) continue;
       // EACH：兩個人各自一份進度，各自判斷有沒有漏做
       for (const subjectKey of subjectsOf(task, ctx)) {
         const [checkIns, penalties] = await Promise.all([
-          tx.checkIn.findMany({ where: { taskId: task.id, subjectKey, date: { gte: keyToDbDate(from), lte: keyToDbDate(yesterday) }, status: { in: ["APPROVED", "PENDING"] } }, select: { date: true } }),
-          tx.taskPenalty.findMany({ where: { taskId: task.id, subjectKey, date: { gte: keyToDbDate(from), lte: keyToDbDate(yesterday) } }, select: { date: true } }),
+          tx.checkIn.findMany({ where: { taskId: task.id, subjectKey, date: { gte: keyToDbDate(from), lte: keyToDbDate(until) }, status: { in: ["APPROVED", "PENDING"] } }, select: { date: true } }),
+          tx.taskPenalty.findMany({ where: { taskId: task.id, subjectKey, date: { gte: keyToDbDate(from), lte: keyToDbDate(until) } }, select: { date: true } }),
         ]);
-        const done = new Set([...checkIns, ...penalties].map((x) => dbDateToKey(x.date)));
-        for (const day of eachDay(from, yesterday)) {
+        const doneDays = [...checkIns, ...penalties].map((x) => dbDateToKey(x.date));
+        if (weekly) {
+          const covered = weeksOf(doneDays);
+          // 從第一個「完整落在觀察範圍內」的週一開始數
+          for (let w = weekStart(from) < from ? addDays(weekStart(from), 7) : weekStart(from); addDays(w, 6) <= until; w = addDays(w, 7)) {
+            if (covered.has(w)) continue;
+            await createPenalty(tx, ctx, task, subjectKey, addDays(w, 6), "整週未完成");
+            created++;
+          }
+          continue;
+        }
+        const done = new Set(doneDays);
+        for (const day of eachDay(from, until)) {
           if (!isScheduled(day, task.daysOfWeek, startKey) || done.has(day)) continue;
           await createPenalty(tx, ctx, task, subjectKey, day, "未完成");
           created++;
@@ -546,11 +639,25 @@ export interface SubjectStats {
   total: number;
 }
 
-function statsFor(task: Pick<Task, "daysOfWeek" | "startDate">, dates: Set<string>, today: string): SubjectStats {
+function statsFor(task: Pick<Task, "daysOfWeek" | "startDate" | "frequency">, dates: Set<string>, today: string): SubjectStats {
   const start = dbDateToKey(task.startDate);
   const ws = weekStart(today);
   const ms = monthStartKey(today);
   const count = (from: string) => [...dates].filter((d) => d >= from && d <= today).length;
+  // 「每週」數的是「週」不是「天」：一週做幾次都只算完成那一週，分母也是週數
+  if (isWeekly(task.frequency)) {
+    const weeks = weeksOf([...dates].filter((d) => d <= today));
+    const weeksSince = (from: string) => [...weeks].filter((w) => w >= weekStart(from) && w <= today).length;
+    return {
+      current: currentWeekStreak(weeks, start, today).length,
+      longest: longestWeekStreak(weeks),
+      weekDone: weeks.has(ws) ? 1 : 0,
+      weekScheduled: 1,
+      monthDone: weeksSince(ms),
+      monthScheduled: weekCount(ms, today, start),
+      total: weeks.size,
+    };
+  }
   return {
     current: currentStreak(dates, task.daysOfWeek, start, today).length,
     longest: longestStreak(dates, task.daysOfWeek, start),
@@ -570,9 +677,23 @@ export interface TaskCard {
   subjectKey: string;
   /** 這份進度屬於誰（SHARED 是兩人共用，所以是 null） */
   subjectUserId: string | null;
+  /** 今天已完成幾次（每日／每週最多 1；「每次」可以很多） */
+  todayCount: number;
+  /** 今天因為這個任務賺到多少（次數 × 獎金） */
+  todayReward: number;
+  /** 「每次」任務：做一次賺一次 */
+  perTime: boolean;
+  /** 「每週」任務：一週內任意一天完成一次即可 */
+  weekly: boolean;
+  /** 「每週」任務這一週是不是已經完成了（含待確認） */
+  doneThisWeek: boolean;
+  /** 「每週」任務這一週那一筆是誰做的 */
+  weekDoneBy: string | null;
   scheduledToday: boolean;
   today: { id: string; status: string; userId: string; photoId: string | null; note: string | null } | null;
   canCheckIn: boolean;
+  /** 另一半今天的進度（只有 EACH 任務才有另一份進度可以看） */
+  partner: { nickname: string; count: number } | null;
   stats: SubjectStats;
 }
 
@@ -587,7 +708,18 @@ export async function taskBoard(ctx: BookContext, today = toDateKey(new Date()))
   const cards: TaskCard[] = tasks.flatMap((task) =>
     subjectsOf(task, ctx).map((subjectKey) => {
       const rows = checkIns.filter((c) => c.taskId === task.id && c.subjectKey === subjectKey);
-      const todayCi = rows.find((c) => dbDateToKey(c.date) === today && c.status !== "CANCELLED") ?? null;
+      const todayRows = rows.filter((c) => dbDateToKey(c.date) === today && c.status !== "CANCELLED" && c.status !== "REJECTED");
+      const todayCi = todayRows.at(-1) ?? null;
+      const perTime = isPerTime(task.frequency);
+      const weekly = isWeekly(task.frequency);
+      // 「每週」看的是整週，不是今天：待確認也算佔住這一週
+      const ws = weekStart(today);
+      const weekRow = weekly
+        ? rows.find((c) => {
+            const k = dbDateToKey(c.date);
+            return k >= ws && k <= addDays(ws, 6) && (c.status === "APPROVED" || c.status === "PENDING");
+          }) ?? null
+        : null;
       const approved = new Set(rows.filter((c) => c.status === "APPROVED").map((c) => dbDateToKey(c.date)));
       const group: TaskGroup =
         task.scope === "SHARED" ? "SHARED"
@@ -599,15 +731,37 @@ export async function taskBoard(ctx: BookContext, today = toDateKey(new Date()))
         group,
         subjectKey,
         subjectUserId: task.scope === "SHARED" ? null : subjectKey,
+        todayCount: todayRows.length,
+        todayReward: todayRows.length * task.rewardAmount,
+        perTime,
+        weekly,
+        doneThisWeek: !!weekRow,
+        weekDoneBy: weekRow?.userId ?? null,
         scheduledToday,
         today: todayCi ? { id: todayCi.id, status: todayCi.status, userId: todayCi.userId, photoId: todayCi.photoId, note: todayCi.note } : null,
-        canCheckIn: ctx.canWrite && scheduledToday && group !== "PARTNER",
+        canCheckIn: ctx.canWrite && scheduledToday && group !== "PARTNER" && (perTime || (weekly ? !weekRow : !todayCi)),
+        partner: null,
         stats: statsFor(task, approved, today),
       };
     }),
   );
+  // EACH 任務有兩份進度，讓「我的」那張卡帶上另一半今天做了幾次
+  if (ctx.partner) {
+    const partnerId = ctx.partner.userId;
+    for (const card of cards) {
+      if (card.task.scope !== "EACH" || card.subjectKey !== ctx.me.userId) continue;
+      const other = cards.find((x) => x.task.id === card.task.id && x.subjectKey === partnerId);
+      if (other) {
+        card.partner = {
+          nickname: ctx.partner.nickname,
+          count: card.weekly ? (other.doneThisWeek ? 1 : 0) : other.todayCount,
+        };
+      }
+    }
+  }
   const rate = (groups: TaskGroup[]) => {
-    const list = cards.filter((c) => c.task.isActive && groups.includes(c.group));
+    // 「每次」任務沒有「應該做幾次」，算進完成率只會把分母灌大，所以不算
+    const list = cards.filter((c) => c.task.isActive && !c.perTime && groups.includes(c.group));
     const scheduled = list.reduce((a, c) => a + c.stats.weekScheduled, 0);
     const done = list.reduce((a, c) => a + c.stats.weekDone, 0);
     return { done, scheduled, rate: scheduled ? done / scheduled : null };
@@ -667,9 +821,28 @@ export async function getTaskDetail(ctx: BookContext, taskId: string, today = to
     prisma.taskPenalty.findMany({ where: { taskId }, orderBy: { date: "desc" } }),
   ]);
   const approved = new Set(checkIns.filter((c) => c.status === "APPROVED").map((c) => dbDateToKey(c.date)));
+  // 「每次」任務同一天可以有很多筆，所以今天是一個清單而不是一筆
+  const todayList = checkIns
+    .filter((c) => dbDateToKey(c.date) === today && c.status !== "CANCELLED" && c.status !== "REJECTED")
+    .sort((a, b) => a.seq - b.seq);
+  // 「每週」看的是整週：這一週有任何一筆完成或待確認，這週就不能再做了
+  const ws = weekStart(today);
+  const weekRow = isWeekly(task.frequency)
+    ? checkIns.find((c) => {
+        const k = dbDateToKey(c.date);
+        return k >= ws && k <= addDays(ws, 6) && (c.status === "APPROVED" || c.status === "PENDING");
+      }) ?? null
+    : null;
   return {
     task,
     subjectKey,
+    perTime: isPerTime(task.frequency),
+    weekly: isWeekly(task.frequency),
+    weekCheckIn: weekRow,
+    doneThisWeek: !!weekRow,
+    todayCheckIns: todayList,
+    todayCount: todayList.length,
+    todayReward: todayList.length * task.rewardAmount,
     checkIns,
     byDate: new Map(checkIns.map((c) => [dbDateToKey(c.date), c])),
     penaltyDates: new Set(penalties.filter((p) => !p.waivedAt).map((p) => dbDateToKey(p.date))),

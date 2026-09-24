@@ -25,7 +25,7 @@ const ALLOWED = new Set(["＋", "・", "→", "‹", "›", "−"]);
 const PAGES = [
   "/", "/transactions", "/transactions/new", "/transactions/transfer", "/transactions/refund",
   "/stats", "/budgets", "/categories", "/accounts", "/settle", "/recurring", "/recurring/new",
-  "/goals", "/goals/new", "/tasks", "/tasks/new", "/funds/new", "/activity", "/more",
+  "/goals", "/goals/new", "/tasks", "/tasks/new", "/funds", "/funds/new", "/activity", "/more",
 ];
 
 /** 一張最小但合法的 PNG（頭貼上傳用）。 */
