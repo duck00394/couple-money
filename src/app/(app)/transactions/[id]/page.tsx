@@ -31,6 +31,34 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
   ]);
   const refunded = refunds.reduce((a, r) => a + r.amount, 0);
   const refundable = Math.max(0, tx.amount - refunded);
+  // 「任務獎勵提列」建立出來的收入：金額等於那一批獎勵的總和，不能單獨改，只能整筆作廢
+  const withdrawnRewards = await prisma.taskReward.count({ where: { withdrawalId: tx.id } });
+
+  if (withdrawnRewards > 0) {
+    return (
+      <>
+        <PageHeader title="紀錄詳細" back="/transactions" />
+        <div className="px-4">
+          <TxDetail tx={tx} ctx={ctx} related={related} />
+          <Card className="mt-3 space-y-1.5 text-sm" data-testid="reward-withdrawal-note">
+            <p className="font-semibold text-stone-800">這是一筆任務獎勵提列</p>
+            <p className="text-stone-600">
+              金額是你當時「我的獎勵」餘額的總和，所以不能單獨改。作廢的話，這 {formatMoney(tx.amount)} 會從帳戶退回去，
+              那批獎勵也會回到<Link href="/tasks" className="text-brand-600 underline">「我的獎勵」</Link>，可以重新提列。
+            </p>
+          </Card>
+          <div className="mt-3">
+            <ReceiptBox transactionId={tx.id} receipts={receipts} max={MAX_RECEIPTS} canWrite={ctx.canWrite} />
+          </div>
+          <DeleteTxButton
+            id={tx.id}
+            label="作廢這筆提列"
+            confirmText="作廢這筆提列？帳戶的錢會退回去，那批獎勵會回到「我的獎勵」，之後可以重新提列。"
+          />
+        </div>
+      </>
+    );
+  }
 
   if (tx.type !== "EXPENSE" && tx.type !== "INCOME") {
     const isReward = tx.type === "TRANSFER" && tx.sourceType === "REWARD_DEPOSIT";

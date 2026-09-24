@@ -377,6 +377,8 @@ export async function updateTransaction(
     assert(before, "TX_NOT_FOUND", "找不到這筆紀錄，可能已被刪除");
     assert(before.type === "EXPENSE" || before.type === "INCOME", "TX_NOT_EDITABLE", "這種紀錄不能在這裡編輯");
     assert(before.version === expectedVersion, "TX_CONFLICT", "另一半剛剛修改過這筆紀錄，請重新整理後再編輯");
+    // 提列出來的收入金額等於那一批獎勵的總和，改了就對不起來，所以只能作廢後重新提列
+    assert(!(await withdrawnBy(tx, id)).isWithdrawal, "TX_REWARD_WITHDRAWAL", "任務獎勵提列的金額不能直接改，請作廢後重新提列");
     // 已經有退款的消費：金額不能改到比已退款金額還少，也不能改成收入（退款是獨立紀錄，要能對得回來）
     const refunded = before.type === "EXPENSE" ? await refundedAmount(tx, ctx.book.id, id) : 0;
     if (refunded > 0) {
@@ -418,6 +420,20 @@ export async function updateTransaction(
  * 在既有的資料庫 transaction 內作廢一筆記帳（呼叫端要自己 lockBook）。
  * 批次刪除會用到，確保「一筆」與「一批」走的是**同一套規則**（與 `createTransactionIn` 同一個模式）。
  */
+/**
+ * 這筆交易是不是「任務獎勵提列」建立出來的收入。
+ *
+ * 提列時會把那一批 TaskReward / TaskPenalty 標上 withdrawalId 指向這筆收入，
+ * 所以只要還有紀錄指著它，它就是一筆提列。
+ */
+async function withdrawnBy(tx: Tx, id: string) {
+  const [rewards, penalties] = await Promise.all([
+    tx.taskReward.count({ where: { withdrawalId: id } }),
+    tx.taskPenalty.count({ where: { withdrawalId: id } }),
+  ]);
+  return { rewards, penalties, isWithdrawal: rewards > 0 || penalties > 0 };
+}
+
 export async function deleteTransactionIn(tx: Tx, ctx: BookContext, id: string) {
   assertCanWrite(ctx);
   {
@@ -438,6 +454,17 @@ export async function deleteTransactionIn(tx: Tx, ctx: BookContext, id: string) 
       assert(refunded === 0, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，請先刪除退款紀錄再刪除消費`);
     }
     const deleted = await tx.transaction.update({ where: { id }, data: { deletedAt: new Date(), deletedById: ctx.me.userId } });
+    // 「任務獎勵提列」的收入被作廢 = 那次提列整個復原：
+    // 帳戶的錢退回去，被標記掉的獎勵與懲罰也要解除標記，重新回到「我的獎勵」餘額裡，
+    // 不然那筆錢會兩邊都不在（帳戶退掉了、餘額又還算它已提列）。
+    const w = await withdrawnBy(tx, id);
+    if (w.isWithdrawal) {
+      await tx.taskReward.updateMany({ where: { withdrawalId: id }, data: { withdrawalId: null } });
+      await tx.taskPenalty.updateMany({ where: { withdrawalId: id }, data: { withdrawalId: null } });
+      await audit(tx, ctx, "REWARD_WITHDRAW_CANCEL", "Transaction", id, null, {
+        rewards: w.rewards, penalties: w.penalties, amount: before.amount,
+      });
+    }
     await syncFundExpense(tx, ctx, deleted, null, null); // 連結的基金支出一併取消
     await detachReceipts(tx, ctx.book.id, id); // 收據照片一併收回（不影響任何金額）
     // 作廢後，每個帳戶已指定給基金的錢都還要有實際餘額對應得到（刪收入、作廢轉帳都可能讓餘額變少）

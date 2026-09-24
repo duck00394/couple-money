@@ -148,6 +148,33 @@ export async function v4Daily(a: Page, b: Page) {
   await expect(b.getByTestId("task-row").filter({ hasText: "每週運動" }).first()).toContainText("本週已完成");
   step("每週 × 各自完成：小艾本週已完成不影響阿本，阿本仍然可以完成");
 
+  // 8b. 獎勵提列 → 在記帳明細找得到那筆收入 → 作廢後獎勵回到「我的獎勵」
+  await go(a, "/tasks");
+  const before = await a.getByTestId("reward-balance").innerText();
+  expect(before, "前面完成了不少任務，應該有餘額").not.toBe("$0");
+  await a.getByTestId("reward-withdraw-open").click();
+  await a.getByLabel("收款帳戶").selectOption({ index: 0 });
+  await a.getByTestId("reward-withdraw-submit").click();
+  await expect(a.getByTestId("reward-balance")).toHaveText("$0", { timeout: 15000 });
+  step(`提列 ${before}：獎勵餘額歸零，錢進到帳戶`);
+
+  // 找得到那筆收入（使用者會來這裡找）
+  const list = await pageText(a, "/transactions");
+  expect(list, "提列後在記帳明細看得到「任務獎勵提列」").toContain("任務獎勵提列");
+  await a.getByText("任務獎勵提列").first().click();
+  await a.waitForURL(/\/transactions\/[^/]+$/);
+  await loaded(a);
+  await expect(a.getByTestId("reward-withdrawal-note")).toContainText("這是一筆任務獎勵提列");
+  await shot(a, "56-withdrawal-detail");
+  step("記帳明細找得到「任務獎勵提列」，點進去會說明它是什麼、作廢會怎樣");
+
+  await a.getByRole("button", { name: "作廢這筆提列" }).click();
+  await a.waitForURL(/\/transactions$/, { timeout: 15000 });
+  const after = await pageText(a, "/tasks");
+  expect(after, "作廢後獎勵要回到「我的獎勵」，不是人間蒸發").toContain(before);
+  expect(await pageText(a, "/transactions"), "那筆收入不見了").not.toContain("任務獎勵提列");
+  step(`作廢提列：帳戶的錢退回去，獎勵 ${before} 回到「我的獎勵」，可以重新提列`);
+
   // 9. 「更多」只剩低頻管理
   const more = await pageText(a, "/more");
   for (const label of ["帳戶管理", "分類管理", "固定支出", "最近動態", "記帳明細與 CSV"]) {
