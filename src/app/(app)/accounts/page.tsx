@@ -1,4 +1,5 @@
 import { AdjustBalanceForm, NewAccountForm, ToggleAccountButton } from "@/components/AccountForms";
+import { ArtTile } from "@/components/ArtIcon";
 import { MoneyConcepts } from "@/components/MoneyConcepts";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
@@ -35,7 +36,7 @@ export default async function AccountsPage() {
                   const fundPart = earmarked.get(a.id) ?? 0;
                   return (
                     <div key={a.id} data-testid="account-row" className={`flex items-center gap-3 px-4 py-3 ${a.isActive ? "" : "opacity-50"}`}>
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-stone-100 text-lg">{ACCOUNT_TYPE_ICON[a.type]}</span>
+                      <ArtTile name={ACCOUNT_TYPE_ICON[a.type]} size={40} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[15px] font-medium text-stone-800">{a.name}</p>
                         {/* 這裡有表單（停用／啟用），所以用 div 不是 p（p 裡不能放表單） */}

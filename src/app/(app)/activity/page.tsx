@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArtTile } from "@/components/ArtIcon";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
 import { addDays, toDateKey, toTimeKey } from "@/lib/dates";
 import { getAppContext } from "@/server/context";
@@ -41,7 +42,7 @@ export default async function ActivityPage() {
                 {list.map((item) => {
                   const body = (
                     <>
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-base">{item.icon}</span>
+                      <ArtTile name={item.icon} size={36} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm text-stone-800">{item.text}</p>
                         {item.detail && <p className="truncate text-xs text-stone-500">{item.detail}</p>}

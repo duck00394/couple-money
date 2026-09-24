@@ -151,9 +151,25 @@ export const LEGACY_EMOJI_ICON: Record<string, IconName> = {
   "📷": "photo", "⚙️": "tool", "⚙": "tool", "📎": "photo", "📌": "tag",
 };
 
-/** 舊值（可能是 emoji、也可能已經是 key）一律正規化成 icon key。 */
+/**
+ * lucide 元件名 → icon key（"Wallet" → "wallet"、"CheckCircle" → "check-circle"）。
+ * 有些舊資料存的是元件名而不是 key，沒有這層就會全部掉到 fallback，變成一片標籤圖示。
+ */
+const COMPONENT_NAME_ICON: Record<string, IconName> = Object.fromEntries(
+  Object.entries(ICONS).map(([key, comp]) => [(comp as { displayName?: string; name?: string }).displayName ?? (comp as { name?: string }).name ?? key, key as IconName]),
+) as Record<string, IconName>;
+
+/**
+ * 舊值一律正規化成 icon key。可能是：
+ *   已經是 key（"wallet"）／舊 emoji（"💰"）／lucide 元件名（"Wallet"）／完全不認識的字串。
+ * 認不出來的一律回 FALLBACK_ICON —— 絕對不會把原字串傳出去變成畫面上的文字。
+ */
 export function toIconKey(value: string | null | undefined): IconName {
   const v = (value ?? "").trim();
   if (isIconName(v)) return v;
-  return LEGACY_EMOJI_ICON[v] ?? FALLBACK_ICON;
+  if (LEGACY_EMOJI_ICON[v]) return LEGACY_EMOJI_ICON[v];
+  if (COMPONENT_NAME_ICON[v]) return COMPONENT_NAME_ICON[v];
+  // "Check Circle"、"check_circle"、"CHECK-CIRCLE" 這種變形也試著救回來
+  const kebab = v.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/[\s_]+/g, "-").toLowerCase();
+  return isIconName(kebab) ? kebab : FALLBACK_ICON;
 }

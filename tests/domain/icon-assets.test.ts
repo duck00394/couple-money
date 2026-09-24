@@ -29,9 +29,27 @@ describe("圖示素材", () => {
     assert.deepEqual(bad, [], `舊 emoji 會對應到不存在的圖示：${bad.join("、")}`);
   });
 
-  it("4. 任何字串經過 toIconKey 之後都指得到真的檔案", () => {
-    for (const input of ["", "check-circle", "不存在的東西", "🐷", "utensils", "MENU"]) {
-      assert.ok(files.has(toIconKey(input)), `toIconKey(${JSON.stringify(input)}) 指到不存在的圖示`);
+  it("4. 任何字串經過 toIconKey 之後都指得到真的檔案（未知一律 fallback）", () => {
+    const hostile = [
+      "", " ", "check-circle", "utensils", "MENU",           // 正常與大小寫
+      "不存在的東西", "exercise", "travel", "book-reading",    // 沒登記過的 key
+      "Wallet", "CheckCircle", "ShoppingBag", "CalendarClock", // lucide 元件名（不是 key）
+      "🐷", "🍜", "✅", "💰",                                  // 舊 emoji 資料
+      "undefined", "null", "[object Object]", "<script>",      // 壞資料
+    ];
+    for (const input of hostile) {
+      const key = toIconKey(input);
+      assert.ok(files.has(key), `toIconKey(${JSON.stringify(input)}) → ${JSON.stringify(key)} 指到不存在的圖示`);
+      assert.ok(!/[A-Z]/.test(key), `${JSON.stringify(input)} 應該被轉成小寫 key，不能原樣留著`);
     }
+    // null / undefined 進來也不能爆掉
+    assert.ok(files.has(toIconKey(undefined)));
+    assert.ok(files.has(toIconKey(null as unknown as string)));
+  });
+
+  it("5. 沒登記過的 key 會落到 fallback，不會原樣傳出去", () => {
+    assert.equal(toIconKey("完全不存在的key"), FALLBACK_ICON);
+    assert.equal(toIconKey("Wallet"), "wallet", "lucide 元件名要能對回 key");
+    assert.equal(toIconKey("utensils"), "utensils", "既有 key 原樣保留，舊資料不會失效");
   });
 });

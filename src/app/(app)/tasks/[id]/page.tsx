@@ -46,7 +46,7 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
       <div className="px-4">
         <p className="mb-3 px-1 text-sm text-stone-500">
           {who}・<span data-testid="task-frequency">{task.frequency === "CUSTOM" ? `${maskLabel(task.daysOfWeek)}・每天最多一次` : FREQUENCY_HINT[task.frequency as keyof typeof FREQUENCY_HINT]}</span>
-          {task.rewardAmount > 0 && `・完成獎金 +${formatMoney(task.rewardAmount)}（記入 ${task.fund?.emoji ?? ""}${task.fund?.name ?? ""} 尚未入金）`}
+          {task.rewardAmount > 0 && `・完成獎金 +${formatMoney(task.rewardAmount)}${task.fund ? `（記入 ${task.fund.name} 尚未入金）` : ""}`}
           {task.requiresApproval && "・需對方確認"}
           {task.requiresPhoto && "・需照片"}
           {!task.isActive && "・已停用"}

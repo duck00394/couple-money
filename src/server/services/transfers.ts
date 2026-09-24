@@ -249,7 +249,8 @@ export async function listRefundable(ctx: BookContext, opts: { take?: number; in
         refundable: Math.max(0, r.amount - done),
         accountName: acc?.name ?? "",
         accountId: acc?.id ?? "",
-        fundName: r.fundEntry && !r.fundEntry.deletedAt ? `${r.fundEntry.fund.emoji} ${r.fundEntry.fund.name}` : null,
+        // 只給名字：圖示要用 <ArtIcon> 畫出來，串進字串會變成「piggy-bank 日本旅遊」
+        fundName: r.fundEntry && !r.fundEntry.deletedAt ? r.fundEntry.fund.name : null,
       };
     })
     .filter((r) => r.refundable > 0 || r.id === opts.includeId);

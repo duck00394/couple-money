@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArtIcon } from "./ArtIcon";
 import { formatMoney } from "@/lib/money";
 import { dateHeading, hasTimeOfDay, toDateKey, toTimeKey } from "@/lib/dates";
 import { TX_TYPE_LABEL, type TxType } from "@/server/domain/ledger";
@@ -59,7 +60,13 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
           </ul>
         </div>
       )}
-      {tx.category && <p><span className="text-stone-500">分類：</span>{tx.category.icon} {tx.category.name}</p>}
+      {tx.category && (
+        <p className="flex items-center gap-1.5">
+          <span className="text-stone-500">分類：</span>
+          <ArtIcon name={tx.category.icon} size={16} />
+          {tx.category.name}
+        </p>
+      )}
       {tx.tags.length > 0 && <p className="break-words"><span className="text-stone-500">標籤：</span>{tx.tags.map((t) => `#${t.tag.name}`).join(" ")}</p>}
       {tx.note && <p className="break-words"><span className="text-stone-500">備註：</span>{tx.note}</p>}
       {fund && (
