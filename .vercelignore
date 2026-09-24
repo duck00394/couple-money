@@ -1,0 +1,18 @@
+# 部署到 Vercel 時不要上傳的東西
+# （有這個檔案時 Vercel 會用它取代 .gitignore，所以該擋的都要寫進來）
+
+node_modules
+.next
+.vercel
+
+# 本機環境設定：裡面有本機資料庫密碼，絕對不要上傳
+.env
+.env.*
+
+# 本機上傳的照片與備份
+.uploads
+backups
+
+# 測試產物
+tests/e2e/screenshots
+coverage
