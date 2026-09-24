@@ -56,12 +56,50 @@ TaskReward／TaskPenalty ＝ 金額的來源紀錄 → 各自對應一筆 FundTr
 - [x] 3-4 F 批次操作：記帳列表勾選多筆，一次改分類／加標籤／刪除（一次最多 50 筆，任何一筆不能刪就整批不動）
 - [x] V1 UI：韓系奶油風改版（統一 Design Token 與共用元件，設計說明見 `docs/12-UI-Design-System.md`）
 
-### 照片功能開關
+## V2（日常可用版）
 
-收據照片與打卡照片存在伺服器的檔案系統（`UPLOAD_DIR`，預設專案下的 `.uploads/`）。
-部署在**沒有持久硬碟**的平台（例如 Vercel）時，把環境變數 `NEXT_PUBLIC_PHOTOS_ENABLED` 設成 `0`，
-畫面會直接隱藏照片相關的上傳入口，也不會把檔案寫進會消失的暫存區。
-本機執行不用設，預設就是開啟。
+- [x] 全站移除 emoji：圖示一律是 `lucide-react` 的線性 SVG，資料庫存的是 icon key
+      （`src/lib/icons.ts` 是唯一登錄表；migration `20260923120000_icon_keys` 把舊 emoji 轉成 key）
+- [x] UI 收斂：暖白紙張 + 髮絲線 + 幾乎看不見的陰影（不靠陰影把卡片墊高）、
+      加大留白、金額用 `.amount` / `.amount-lg` 成為最重要的視覺層級、首頁改成「兩個人的生活帳本」
+- [x] 共同／個人預算：同一個分類可以同時有共同預算與兩個人各自的個人預算
+- [x] 使用者頭貼：JPG／PNG／WebP、2MB、正方形裁切、圓形顯示、可更換與移除
+- [x] 物件儲存抽象層：頭貼、收據、打卡照片共用 `src/server/storage`（本機磁碟 / Vercel Blob）
+
+### 共同預算與個人預算
+
+`Budget.subjectKey` 決定這筆預算是誰的：`"COUPLE"` 是兩人共用（V1 的行為），
+其他值就是那個 `userId` 的個人預算（沿用 `UserAchievement.subjectKey` 的 sentinel 慣例；
+用 sentinel 而不是 nullable 欄位，是因為 Postgres 的 UNIQUE 會把多個 NULL 視為相異）。
+
+兩種預算的「已用」口徑不同，但都來自同一套統計條件（`stats.ts` 的 `monthWhere` + `FLOW_TYPES`）：
+
+| | 已用的定義 | 來源 |
+|---|---|---|
+| 共同 | 該分類這個月的總支出 | `monthStats()` 的分類統計 |
+| 個人 | 分帳後的**實際負擔**（不是誰付的錢） | `monthBorneByCategory()` → `TransactionSplit` |
+
+因為個人是看 `TransactionSplit`，所以退款（負數 split）會自動回沖、
+共同帳戶付款（`payment.userId = null`）只要有分給兩人一樣算得到，
+而且 **Σ(每個人) 必然等於該分類的總支出**，不會出現第二套口徑。
+
+### 照片、頭貼與儲存位置
+
+頭貼、記帳收據、任務打卡照片共用 `src/server/storage` 這一層，資料庫只存 `storageKey`：
+
+| driver | 何時會用到 | 檔案放哪裡 |
+|---|---|---|
+| `local` | 預設（本機開發） | `UPLOAD_DIR`，預設專案下的 `.uploads/` |
+| `blob` | 有 `BLOB_READ_WRITE_TOKEN`（Vercel 接上 Blob store 時自動注入） | Vercel Blob，`access: "private"` |
+
+也可以用 `STORAGE_DRIVER=local｜blob` 明確指定。兩個 driver 的 key 格式一樣，換 driver 不需要 migration。
+讀取一律經過 `/api/files/[id]`，會檢查是不是同一個帳本的成員，所以 Blob 的網址不會外流。
+
+部署在**沒有持久硬碟**的平台（例如 Vercel）又沒有接 Blob 時，伺服器會直接拒絕上傳
+（`STORAGE_NOT_DURABLE`），不會讓使用者傳完才發現檔案不見。
+另外也可以用 `NEXT_PUBLIC_PHOTOS_ENABLED=0` 手動把照片功能整個關掉。
+
+詳細的部署與環境變數說明見 `DEPLOY.md`。
 
 統計是**純讀取**：不新增任何交易，收支的定義直接沿用搜尋頁的 `totalsFromGroups()`，
 並有測試強制「統計 = 首頁 `monthSummary()` = 搜尋 `totals`」，避免出現第二套財務規則。
@@ -113,7 +151,7 @@ npm run dev                   # http://localhost:3000
 ## 測試
 
 ```bash
-npm test                                                  # 純邏輯（Phase 1～3-4）
+npm test                                                  # 純邏輯（Phase 1～V2）
 TEST_DATABASE_URL=postgresql://.../couple_money_test \
   npm run test:integration                                # 服務層整合測試（會清空該資料庫！）
 npm run build && npm start                                # 另開視窗

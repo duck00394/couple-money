@@ -1,0 +1,772 @@
+// Couple Money — 資料庫結構（Phase 1）
+// 金額欄位一律為 Int，單位是「最小單位」（TWD 1 元 = 100）。
+// 餘額、欠款都不存欄位，一律由 Transaction 分錄即時計算。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon：DATABASE_URL 用連線池（pooled），migration 用直連（unpooled）
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// ───────────────────────── 使用者與登入 ─────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  avatarColor  String    @default("#F4A7A3")
+  avatarUrl    String?
+  activeBookId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime? // 刪除帳號 = 匿名化，不刪交易
+
+  sessions    Session[]
+  memberships BookMember[]
+}
+
+model Session {
+  id         String   @id // SHA-256(token)，資料庫不存明文 token
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+
+  @@index([userId])
+}
+
+// ───────────────────────── 帳本與情侶 ─────────────────────────
+
+enum BookStatus {
+  ACTIVE
+  READ_ONLY // 解除綁定後轉為唯讀
+  ARCHIVED // 匯出後關閉
+}
+
+enum MemberRole {
+  OWNER
+  PARTNER
+  VIEWER
+}
+
+enum MemberStatus {
+  ACTIVE
+  LEFT
+}
+
+model Book {
+  id               String     @id @default(cuid())
+  name             String
+  coverEmoji       String     @default("couple")
+  coverColor       String     @default("#FCE7E4")
+  currency         String     @default("TWD")
+  timeZone         String     @default("Asia/Taipei")
+  status           BookStatus @default(ACTIVE)
+  defaultSplitRule Json? // SplitRule；null = 全員平均
+  createdById      String
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  deletedAt        DateTime?
+
+  couple       Couple?
+  members      BookMember[]
+  invites      Invite[]
+  accounts     Account[]
+  categories   Category[]
+  tags         Tag[]
+  transactions Transaction[]
+  settlements  Settlement[]
+  auditLogs    AuditLog[]
+  budgets      Budget[]
+
+  // Phase 2
+  funds            Fund[]
+  fundTransactions FundTransaction[]
+  goals            Goal[]
+  tasks            Task[]
+  checkIns         CheckIn[]
+  taskRewards      TaskReward[]
+  taskPenalties    TaskPenalty[]
+  achievements     UserAchievement[]
+  attachments      Attachment[]
+  deleteRequests   DeleteRequest[]
+
+  // Phase 3-3
+  recurringExpenses RecurringExpense[]
+}
+
+model Couple {
+  id        String    @id @default(cuid())
+  bookId    String    @unique
+  book      Book      @relation(fields: [bookId], references: [id])
+  startedOn DateTime? @db.Date // 交往紀念日
+  status    String    @default("ACTIVE") // ACTIVE | ENDED
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model BookMember {
+  id       String       @id @default(cuid())
+  bookId   String
+  book     Book         @relation(fields: [bookId], references: [id])
+  userId   String
+  user     User         @relation(fields: [userId], references: [id])
+  role     MemberRole
+  status   MemberStatus @default(ACTIVE)
+  nickname String // 在此帳本顯示的名稱（離開後仍保留，歷史紀錄可讀）
+  joinedAt DateTime     @default(now())
+  leftAt   DateTime?
+
+  @@unique([bookId, userId])
+  @@index([userId])
+}
+
+model Invite {
+  id          String     @id @default(cuid())
+  bookId      String
+  book        Book       @relation(fields: [bookId], references: [id])
+  code        String     @unique
+  role        MemberRole @default(PARTNER)
+  createdById String
+  expiresAt   DateTime
+  usedById    String?
+  usedAt      DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime   @default(now())
+
+  @@index([bookId])
+}
+
+// ───────────────────────── 帳戶、分類、標籤 ─────────────────────────
+
+enum AccountType {
+  CASH
+  BANK
+  CREDIT_CARD
+  E_WALLET
+  JOINT
+  OTHER
+}
+
+model Account {
+  id          String      @id @default(cuid())
+  bookId      String
+  book        Book        @relation(fields: [bookId], references: [id])
+  ownerId     String? // null = 共同帳戶
+  name        String
+  type        AccountType
+  currency    String      @default("TWD")
+  icon        String?
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  createdById String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  payments TransactionPayment[]
+
+  @@index([bookId])
+}
+
+enum CategoryKind {
+  EXPENSE
+  INCOME
+}
+
+model Category {
+  id         String       @id @default(cuid())
+  bookId     String
+  book       Book         @relation(fields: [bookId], references: [id])
+  parentId   String?
+  parent     Category?    @relation("CategoryTree", fields: [parentId], references: [id])
+  children   Category[]   @relation("CategoryTree")
+  kind       CategoryKind
+  name       String
+  icon       String       @default("tag")
+  color      String       @default("#E5E7EB")
+  splitRule  Json? // 此分類的預設分帳規則（例：房租 40/60）
+  sortOrder  Int          @default(0)
+  isArchived Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@index([bookId, kind])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+  name      String
+  createdAt DateTime @default(now())
+
+  transactions TransactionTag[]
+
+  @@unique([bookId, name])
+}
+
+/// 每月分類預算（Phase 3-4 B）。
+/// 預算只是「提醒／控制支出」，**不是資金帳本**：
+/// 它不產生 Transaction / Payment / Split，也不影響餘額、欠款、基金與 /stats 的金額。
+/// 「已支出」一律由既有的 /stats 統計口徑即時算出來，這裡不存任何加總結果。
+model Budget {
+  id          String   @id @default(cuid())
+  bookId      String
+  book        Book     @relation(fields: [bookId], references: [id])
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  /// 帳本時區的 YYYY-MM
+  month       String   @db.VarChar(7)
+  /// "COUPLE" = 兩人共用的分類預算（V1 的行為）；其他值 = 該 userId 的個人預算。
+  /// 沿用 UserAchievement.subjectKey 的慣例；用 sentinel 而不是 nullable，
+  /// 因為 Postgres 的 unique 會把多個 NULL 視為相異，那樣會允許重複的共同預算。
+  subjectKey  String   @default("COUPLE")
+  /// 預算金額（最小單位整數，> 0）
+  amount      Int
+  /// 停用的預算保留紀錄，但不納入本月的檢查與摘要
+  isActive    Boolean  @default(true)
+  note        String?
+  createdById String
+  updatedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([bookId, categoryId, month, subjectKey])
+  @@index([bookId, month])
+}
+
+// ───────────────────────── 總帳 ─────────────────────────
+
+enum TxType {
+  EXPENSE
+  INCOME
+  REFUND
+  TRANSFER
+  SETTLEMENT
+  OPENING_BALANCE
+  ADJUSTMENT
+}
+
+enum TxStatus {
+  POSTED
+  PENDING // 預留：固定支出產生的待處理帳單
+}
+
+model Transaction {
+  id                 String            @id @default(cuid())
+  bookId             String
+  book               Book              @relation(fields: [bookId], references: [id])
+  type               TxType
+  status             TxStatus          @default(POSTED)
+  occurredAt         DateTime
+  amount             Int // 實際支付金額（> 0）
+  originalAmount     Int? // 原價
+  discountAmount     Int               @default(0) // 折扣／優惠券
+  currency           String            @default("TWD")
+  title              String?
+  merchant           String?
+  location           String?
+  note               String?
+  paymentMethod      String?
+  invoiceNo          String? // 發票號碼
+  carrierNote        String? // 載具備註
+  taxIdNote          String? // 統編備註
+  categoryId         String?
+  category           Category?         @relation(fields: [categoryId], references: [id])
+  splitRule          Json? // 建立時使用的分帳規則（編輯時還原表單）
+  relatedId          String? // 退款對應的原始消費
+  sourceType         String? // 預留：TASK_REWARD / RECURRING / FUND …
+  sourceId           String?
+  // Phase 3-3：由哪一筆固定支出、哪一個應付日產生（同一個應付日只能產生一筆）
+  recurringExpenseId String?
+  recurring          RecurringExpense? @relation(fields: [recurringExpenseId], references: [id])
+  recurringDueDate   DateTime?         @db.Date
+  clientRequestId    String // 防重送（idempotency key）
+  version            Int               @default(1)
+  createdById        String
+  updatedById        String
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  deletedAt          DateTime?
+  deletedById        String?
+
+  payments   TransactionPayment[]
+  splits     TransactionSplit[]
+  tags       TransactionTag[]
+  settlement Settlement?
+  fundEntry  FundTransaction? // Phase 2：這筆消費從哪個基金扣
+
+  // V3：這筆 INCOME 是由哪些任務獎勵／懲罰提列而來（可追溯）
+  withdrawnRewards   TaskReward[]  @relation("RewardWithdrawal")
+  withdrawnPenalties TaskPenalty[] @relation("PenaltyWithdrawal")
+
+  @@unique([bookId, clientRequestId])
+  @@unique([recurringExpenseId, recurringDueDate])
+  @@index([bookId, occurredAt])
+  @@index([bookId, type, deletedAt])
+}
+
+/// 誰實際付款／收款。amount > 0 流出，< 0 流入。
+model TransactionPayment {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account     @relation(fields: [accountId], references: [id])
+  userId        String? // 帳戶擁有者快照；null = 共同帳戶
+  amount        Int
+
+  @@index([transactionId])
+  @@index([accountId])
+}
+
+/// 每個人實際應負擔多少。amount > 0 負擔，< 0 受益。
+model TransactionSplit {
+  id            String      @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  userId        String
+  amount        Int
+
+  @@unique([transactionId, userId])
+}
+
+model TransactionTag {
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tagId         String
+  tag           Tag         @relation(fields: [tagId], references: [id])
+
+  @@id([transactionId, tagId])
+}
+
+model Settlement {
+  id              String      @id @default(cuid())
+  bookId          String
+  book            Book        @relation(fields: [bookId], references: [id])
+  fromUserId      String
+  toUserId        String
+  amount          Int
+  note            String?
+  transactionId   String      @unique
+  transaction     Transaction @relation(fields: [transactionId], references: [id])
+  clientRequestId String
+  createdById     String
+  createdAt       DateTime    @default(now())
+  deletedAt       DateTime?
+
+  @@unique([bookId, clientRequestId])
+  @@index([bookId, createdAt])
+}
+
+// ───────────────────────── 稽核 ─────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  bookId     String?
+  book       Book?    @relation(fields: [bookId], references: [id])
+  actorId    String?
+  action     String // CREATE | UPDATE | DELETE | RESTORE | ROLE_CHANGE | JOIN | LEAVE …
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([bookId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// ═════════════════════════ Phase 2：共同基金、共同目標、任務 ═════════════════════════
+//
+// 三個概念分開：
+//   Account（共同帳戶）＝ 真實的錢放在哪裡            → 由 Transaction 計算餘額
+//   Fund（共同基金）  ＝ 這筆錢被指定要拿來做什麼    → 由 FundTransaction 計算餘額（不移動真實帳戶的錢）
+//   Goal（共同目標）  ＝ 想達成的結果                → 進度讀取連結基金的餘額
+// 任何「餘額」「目前金額」都不存欄位，一律從紀錄加總。
+
+model Fund {
+  id           String    @id @default(cuid())
+  bookId       String
+  book         Book      @relation(fields: [bookId], references: [id])
+  name         String
+  emoji        String    @default("piggy-bank")
+  description  String?
+  targetAmount Int? // 基金目標金額（選填）
+  dueDate      DateTime? @db.Date
+  isArchived   Boolean   @default(false)
+  sortOrder    Int       @default(0)
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  entries   FundTransaction[]
+  goals     Goal[]
+  tasks     Task[]
+  rewards   TaskReward[]
+  penalties TaskPenalty[]
+
+  @@index([bookId])
+}
+
+enum FundTxType {
+  DEPOSIT // 投入：把某個帳戶裡的錢指定給基金（不得超過帳戶可自由使用金額）
+  WITHDRAW // 取回：從某個帳戶的指定額度取消指定
+  EXPENSE // 基金支出：連結一筆真實的 Transaction，並動用某個帳戶裡的指定額度
+  REWARD_DEPOSIT // 獎金入金：把「尚未入金」的任務獎金（扣掉懲罰）實際存入某個帳戶並指定給基金
+  TASK_REWARD // 已停用（舊版：打卡後直接加基金）。保留列舉值以相容舊資料
+  MILESTONE_BONUS // 已停用（同上）
+  TASK_PENALTY // 已停用（同上）
+}
+
+/// 基金「實際金額」的變化。amount 帶正負：+ 基金增加，- 基金減少。
+/// 實際基金金額 = Σ amount（未刪除）；帳戶「已指定給基金」= Σ amount（同一個 accountId）。
+/// 尚未入金的任務獎金不在這裡，而是 TaskReward／TaskPenalty 尚未結算的加總。
+model FundTransaction {
+  id              String       @id @default(cuid())
+  bookId          String
+  book            Book         @relation(fields: [bookId], references: [id])
+  fundId          String
+  fund            Fund         @relation(fields: [fundId], references: [id])
+  type            FundTxType
+  amount          Int
+  userId          String? // 投入者／花費者／受罰者；null = 共同
+  accountId       String? // 指定額度所在的帳戶（投入／取回／支出／入金都必填；舊資料可能為 null）
+  transactionId   String?      @unique // EXPENSE：對應的真實消費
+  transaction     Transaction? @relation(fields: [transactionId], references: [id])
+  sourceType      String? // TASK_REWARD / TASK_PENALTY / TRANSACTION …
+  sourceId        String?
+  occurredAt      DateTime
+  note            String?
+  clientRequestId String
+  createdById     String
+  updatedById     String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+  deletedById     String?
+
+  settledRewards   TaskReward[] // REWARD_DEPOSIT 結算了哪些獎金
+  settledPenalties TaskPenalty[] // 以及抵扣了哪些懲罰
+
+  @@unique([bookId, clientRequestId])
+  @@index([fundId, deletedAt])
+}
+
+enum GoalStatus {
+  ACTIVE
+  ACHIEVED
+}
+
+model Goal {
+  id           String     @id @default(cuid())
+  bookId       String
+  book         Book       @relation(fields: [bookId], references: [id])
+  fundId       String? // 目前金額 = 此基金餘額
+  fund         Fund?      @relation(fields: [fundId], references: [id])
+  name         String
+  description  String?
+  emoji        String     @default("target") // 封面圖示（icon key，見 src/lib/icons.ts）
+  targetAmount Int
+  startDate    DateTime   @db.Date
+  deadline     DateTime?  @db.Date
+  isActive     Boolean    @default(true)
+  status       GoalStatus @default(ACTIVE)
+  achievedAt   DateTime?
+  createdById  String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  @@index([bookId, isActive])
+}
+
+enum TaskScope {
+  PERSONAL // 我的／另一半的任務（assigneeId）
+  SHARED // 【舊語意，保留給既有資料】共同任務：兩人任一人完成就算這一天完成
+  EACH // 兩人各自完成、各自獲得自己的獎勵（CheckIn.subjectKey = 各自的 userId）
+}
+
+enum TaskFrequency {
+  DAILY
+  WEEKLY // 每週固定一天
+  CUSTOM // 自選星期幾
+}
+
+model Task {
+  id               String        @id @default(cuid())
+  bookId           String
+  book             Book          @relation(fields: [bookId], references: [id])
+  title            String
+  description      String?
+  emoji            String        @default("check-circle")
+  scope            TaskScope     @default(PERSONAL)
+  assigneeId       String? // PERSONAL 必填
+  frequency        TaskFrequency @default(DAILY)
+  daysOfWeek       Int           @default(127) // 位元遮罩：bit0 = 週日 … bit6 = 週六
+  requiresApproval Boolean       @default(false)
+  requiresPhoto    Boolean       @default(false)
+  rewardAmount     Int           @default(0)
+  fundId           String? // 獎金／懲罰進出的基金
+  fund             Fund?         @relation(fields: [fundId], references: [id])
+  penaltyAmount    Int           @default(0)
+  penaltyText      String? // 非金錢懲罰
+  penaltyStartDate DateTime?     @db.Date // 從這天起漏做才會產生懲罰
+  isActive         Boolean       @default(true)
+  startDate        DateTime      @db.Date
+  createdById      String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  deletedAt        DateTime?
+
+  checkIns   CheckIn[]
+  milestones TaskMilestone[]
+  rewards    TaskReward[]
+  penalties  TaskPenalty[]
+
+  @@index([bookId, isActive])
+}
+
+enum CheckInStatus {
+  PENDING // 待確認
+  APPROVED // 已完成
+  REJECTED // 被拒絕
+  CANCELLED // 已取消
+}
+
+model CheckIn {
+  id           String        @id @default(cuid())
+  bookId       String
+  book         Book          @relation(fields: [bookId], references: [id])
+  taskId       String
+  task         Task          @relation(fields: [taskId], references: [id])
+  subjectKey   String // 誰的進度：PERSONAL = userId；SHARED = "COUPLE"
+  userId       String // 實際打卡的人
+  date         DateTime      @db.Date
+  status       CheckInStatus
+  note         String?
+  photoId      String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  cancelledAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  rewards TaskReward[]
+  claims  TaskMilestoneClaim[]
+
+  @@unique([taskId, subjectKey, date]) // 同一個進度同一天只有一筆
+  @@index([bookId, date])
+}
+
+/// 任務獎勵來源。金錢部分透過 FundTransaction 進入基金。
+model TaskReward {
+  id             String           @id @default(cuid())
+  bookId         String
+  book           Book             @relation(fields: [bookId], references: [id])
+  taskId         String
+  task           Task             @relation(fields: [taskId], references: [id])
+  checkInId      String
+  checkIn        CheckIn          @relation(fields: [checkInId], references: [id])
+  kind           String // CHECKIN | MILESTONE
+  sourceKey      String           @unique // checkin:<id> / milestone:<claimId>，防止重複發放
+  userId         String // 獲得者（打卡的人）
+  amount         Int
+  fundId         String?
+  fund           Fund?            @relation(fields: [fundId], references: [id])
+  depositEntryId String? // 入金後指向那筆 REWARD_DEPOSIT；null = 已獲得、尚未入金
+  depositEntry   FundTransaction? @relation(fields: [depositEntryId], references: [id])
+  withdrawalId   String? // 提列後指向那筆 INCOME Transaction；null = 還在個人獎勵餘額裡
+  withdrawal     Transaction?     @relation("RewardWithdrawal", fields: [withdrawalId], references: [id])
+  createdById    String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  deletedAt      DateTime? // 取消打卡時收回
+
+  @@index([fundId, depositEntryId])
+  @@index([userId, withdrawalId])
+}
+
+model TaskPenalty {
+  id             String           @id @default(cuid())
+  bookId         String
+  book           Book             @relation(fields: [bookId], references: [id])
+  taskId         String
+  task           Task             @relation(fields: [taskId], references: [id])
+  subjectKey     String
+  userId         String? // 受罰者；共同任務為 null
+  date           DateTime         @db.Date // 漏做的日期
+  amount         Int              @default(0)
+  text           String? // 非金錢懲罰
+  fundId         String?
+  fund           Fund?            @relation(fields: [fundId], references: [id])
+  depositEntryId String? // 入金結算時抵扣；null = 尚未結算
+  depositEntry   FundTransaction? @relation(fields: [depositEntryId], references: [id])
+  withdrawalId   String? // 提列時一起結清，指向那筆 INCOME Transaction
+  withdrawal     Transaction?     @relation("PenaltyWithdrawal", fields: [withdrawalId], references: [id])
+  createdById    String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  waivedAt       DateTime? // 免除（尚未結算時才可以）
+  waivedById     String?
+
+  @@unique([taskId, subjectKey, date]) // 同一天只罰一次
+}
+
+model TaskMilestone {
+  id          String  @id @default(cuid())
+  taskId      String
+  task        Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  days        Int
+  bonusAmount Int     @default(0)
+  badgeEmoji  String  @default("medal")
+  badgeName   String
+  rewardText  String? // 非金錢獎勵
+
+  claims TaskMilestoneClaim[]
+
+  @@unique([taskId, days])
+}
+
+/// 同一段連續紀錄（streakStartDate）每個里程碑只能達成一次。
+model TaskMilestoneClaim {
+  id              String        @id @default(cuid())
+  milestoneId     String
+  milestone       TaskMilestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  subjectKey      String
+  userId          String
+  streakStartDate DateTime      @db.Date
+  checkInId       String
+  checkIn         CheckIn       @relation(fields: [checkInId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  @@unique([milestoneId, subjectKey, streakStartDate])
+}
+
+/// 徽章／成就。Phase 2 由里程碑產生，Phase 4 擴充其他成就。
+model UserAchievement {
+  id         String    @id @default(cuid())
+  bookId     String
+  book       Book      @relation(fields: [bookId], references: [id])
+  subjectKey String // userId 或 "COUPLE"
+  code       String // 例：MILESTONE
+  title      String
+  emoji      String
+  sourceType String
+  sourceId   String
+  earnedAt   DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  @@unique([sourceType, sourceId])
+  @@index([bookId, subjectKey])
+}
+
+/// 上傳檔案（打卡照片等）。開發環境存本機資料夾，上線時換成物件儲存。
+model Attachment {
+  id          String    @id @default(cuid())
+  bookId      String
+  book        Book      @relation(fields: [bookId], references: [id])
+  ownerType   String // CHECKIN …
+  ownerId     String?
+  fileName    String
+  mimeType    String
+  size        Int
+  storageKey  String    @unique
+  createdById String
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  @@index([ownerType, ownerId])
+}
+
+enum DeleteRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// 需要另一半確認的刪除（共同目標、共同基金）。
+model DeleteRequest {
+  id            String              @id @default(cuid())
+  bookId        String
+  book          Book                @relation(fields: [bookId], references: [id])
+  entityType    String // GOAL | FUND
+  entityId      String
+  status        DeleteRequestStatus @default(PENDING)
+  requestedById String
+  decidedById   String?
+  decidedAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([bookId, status])
+  @@index([entityType, entityId])
+}
+
+// ───────────────────────── Phase 3-3：固定支出 ─────────────────────────
+
+enum RecurringFrequency {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum RecurringStatus {
+  ACTIVE
+  PAUSED
+}
+
+/**
+ * 固定支出「設定」：只是排程規則，不是金流。
+ * 到了應付日，使用者確認後才會產生真正的 Transaction（recurringExpenseId 指回這裡）。
+ */
+model RecurringExpense {
+  id                String             @id @default(cuid())
+  bookId            String
+  book              Book               @relation(fields: [bookId], references: [id])
+  name              String
+  note              String?
+  amount            Int
+  categoryId        String?
+  accountId         String // 付款帳戶（付款人由帳戶擁有者決定，與記帳一致）
+  splitRule         Json // 與記帳相同的 SplitRule
+  frequency         RecurringFrequency
+  dayOfWeek         Int? // WEEKLY：0 = 週日 … 6 = 週六
+  dayOfMonth        Int? // MONTHLY / YEARLY：1～31（該月沒有這天就用當月最後一天）
+  month             Int? // YEARLY：1～12
+  startDate         DateTime           @db.Date
+  endDate           DateTime?          @db.Date
+  nextDueDate       DateTime?          @db.Date // null = 已結束（超過結束日期）
+  status            RecurringStatus    @default(ACTIVE)
+  lastGeneratedDate DateTime?          @db.Date
+  createdById       String
+  updatedById       String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  deletedAt         DateTime?
+  deletedById       String?
+
+  transactions Transaction[]
+
+  @@index([bookId, status, nextDueDate])
+}
