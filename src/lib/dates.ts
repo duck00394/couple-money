@@ -29,6 +29,13 @@ export function fromDateTime(key: string, time?: string | null): Date {
   return d;
 }
 
+/** 台灣時間某一天的起訖 [start, end)。台灣沒有日光節約時間，所以整天恰好 24 小時。 */
+export function dayRange(key: string): { start: Date; end: Date } {
+  fromDateKey(key); // 先驗證格式
+  const start = new Date(`${key}T00:00:00+08:00`);
+  return { start, end: new Date(start.getTime() + 86400_000) };
+}
+
 /** 這個時間點有沒有實際填時間（中午＝只填了日期）。 */
 export function hasTimeOfDay(d: Date): boolean {
   return toTimeKey(d) !== "12:00";

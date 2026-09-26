@@ -24,7 +24,7 @@ export default async function CategoriesPage() {
               <SectionTitle right={<span className="text-xs text-stone-400">{list.filter((c) => !c.isArchived).length} 個可用</span>}>
                 {CATEGORY_KIND_LABEL[kind]}分類
               </SectionTitle>
-              <Card className="divide-y divide-line p-0">
+              <Card quiet className="divide-y divide-line p-0">
                 {list.length === 0 ? (
                   <Empty icon="tag">還沒有{CATEGORY_KIND_LABEL[kind]}分類</Empty>
                 ) : (

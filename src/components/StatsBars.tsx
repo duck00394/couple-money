@@ -3,10 +3,17 @@ import { ArtIcon } from "./ArtIcon";
 import { formatMoney } from "@/lib/money";
 import { cx } from "./ui";
 
+/**
+ * 同一個橘色系的深淺三階。
+ * 「我／對方／共同」需要一眼分辨，但不該用不同色相搶戲，所以只變深淺。
+ */
 const TONES = {
   brand: "bg-brand-400",
-  green: "bg-emerald-500",
-  orange: "bg-orange-400",
+  me: "bg-brand-600",
+  partner: "bg-brand-400",
+  joint: "bg-brand-200",
+  green: "bg-brand-500",
+  orange: "bg-brand-400",
   stone: "bg-stone-300",
 } as const;
 
@@ -54,12 +61,12 @@ export function MiniTrend({ points, labelOf }: { points: Array<{ month: string; 
         <div key={p.month} className="flex min-w-0 flex-1 flex-col items-center gap-1">
           <div className="flex h-24 w-full items-end justify-center gap-0.5">
             <div
-              className="w-1/2 rounded-t-md bg-brand-400"
+              className="w-1/2 rounded-t-md bg-brand-600"
               style={{ height: `${(p.netExpense / max) * 100}%` }}
               title={`${labelOf(p.month)} 淨支出 ${formatMoney(p.netExpense)}`}
             />
             <div
-              className="w-1/2 rounded-t-md bg-emerald-400"
+              className="w-1/2 rounded-t-md bg-brand-200 ring-1 ring-inset ring-brand-400"
               style={{ height: `${(p.income / max) * 100}%` }}
               title={`${labelOf(p.month)} 收入 ${formatMoney(p.income)}`}
             />

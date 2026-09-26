@@ -29,7 +29,7 @@ export default async function AccountsPage() {
           return (
             <section key={g.title}>
               <SectionTitle right={<span className="tnum text-sm font-medium text-stone-500">{formatMoney(total)}</span>}>{g.title}</SectionTitle>
-              <Card className="divide-y divide-line p-0">
+              <Card quiet className="divide-y divide-line p-0">
                 {g.items.length === 0 && <p className="p-4 text-center text-sm text-stone-500">沒有帳戶</p>}
                 {g.items.map((a) => {
                   const isCard = a.type === "CREDIT_CARD";

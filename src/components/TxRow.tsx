@@ -28,7 +28,7 @@ function Row({ href, icon, tone = "neutral", title, sub, amount, amountClass = "
           <p className="mt-0.5 truncate text-[11px] text-brand-600">{tags.map((t) => `#${t}`).join(" ")}</p>
         )}
       </div>
-      <span className={`amount shrink-0 text-[15px] ${amountClass}`}>{amount}</span>
+      <span className={`amount shrink-0 text-[15px] ${amountClass || "text-stone-800"}`}>{amount}</span>
     </Link>
   );
 }
@@ -40,7 +40,7 @@ export function TxRow({ tx, ctx }: { tx: TxListItem; ctx: BookContext }) {
 
   if (tx.type === "SETTLEMENT" && tx.settlement) {
     const s = tx.settlement;
-    return <Row href={href} icon="settle" tone="income" title={`${name(ctx, s.fromUserId)} 還給 ${name(ctx, s.toUserId)}`} sub={`結算${tx.note ? ` · ${tx.note}` : ""}`} amount={formatMoney(tx.amount)} amountClass="text-emerald-600" />;
+    return <Row href={href} icon="settle" tone="income" title={`${name(ctx, s.fromUserId)} 還給 ${name(ctx, s.toUserId)}`} sub={`結算${tx.note ? ` · ${tx.note}` : ""}`} amount={formatMoney(tx.amount)} amountClass="rounded-md bg-brand-100 px-1.5 py-0.5 text-brand-700" />;
   }
   if (tx.type === "TRANSFER") {
     const out = tx.payments.find((p) => p.amount > 0);
@@ -91,7 +91,7 @@ export function TxRow({ tx, ctx }: { tx: TxListItem; ctx: BookContext }) {
       title={title}
       sub={`${payer}${!isIncome && tx.splits.length > 0 ? ` · 我${isRefund ? "少負擔" : "負擔"} ${formatMoney(Math.abs(mine))}` : ""}${fund}${recurring}`}
       amount={`${isIncome || isRefund ? "+" : "-"}${formatMoney(tx.amount)}`}
-      amountClass={isIncome || isRefund ? "text-emerald-600" : ""}
+      amountClass={isIncome || isRefund ? "rounded-md bg-brand-100 px-1.5 py-0.5 text-brand-700" : "text-stone-800"}
       tags={tags}
     />
   );

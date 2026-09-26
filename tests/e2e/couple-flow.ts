@@ -22,6 +22,8 @@ import { phase4Ui } from "./phase4-ui";
 import { v4Daily } from "./v4-daily";
 import { iconText } from "./icon-text";
 import { uxAudit } from "./ux-audit";
+import { v5PreorderCalc } from "./v5-preorder-calc";
+import { v6HomeDebtTags } from "./v6-home-debt-tags";
 
 /** 後續階段的流程依序接在 Phase 1 之後執行（兩人帳號延續使用）。 */
 const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
@@ -39,6 +41,8 @@ const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
   ["phase3-4f batch", phase3Batch],
   ["phase4 ui+avatar", phase4Ui],
   ["v4 daily", v4Daily],
+  ["v5 preorder+calc", v5PreorderCalc],
+  ["v6 home+debt+tags", v6HomeDebtTags],
   ["icon text", async (a) => iconText(a)],
   ["ux audit", async (a) => uxAudit(a)],
 ];
@@ -172,6 +176,8 @@ async function main() {
 
   // 6. 部分結算 → 超額檢查 → 一鍵結清
   await go(b, "/settle");
+  // 我欠對方時，逐筆選擇器是主要入口；自己輸入金額的表單收在下面
+  await b.getByText("自己輸入金額結算").click();
   await b.getByRole("button", { name: "部分結算" }).click();
   await b.getByLabel("結算金額").fill("9999");
   await b.getByRole("button", { name: /確認/ }).click();

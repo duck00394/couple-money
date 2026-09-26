@@ -20,14 +20,28 @@ export function cx(...c: Array<string | false | null | undefined>) {
  * 不是靠陰影把卡片墊高，所以這裡只留一層幾乎看不見的微光。
  */
 /** 一張手帳紙：圓角 + 深咖啡虛線邊框 + 位移硬陰影。 */
-export function Card({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cx("paper p-4", className)} {...props} />;
+/**
+ * 卡片。
+ * 預設是手帳風的虛線紙（主要區塊用）；`quiet` 是次要容器，只有一條髮絲線，
+ * 這樣虛線才會是「這裡比較重要」的訊號，而不是滿版的裝飾。
+ */
+export function Card({ className, quiet, ...props }: ComponentProps<"div"> & { quiet?: boolean }) {
+  return <div className={cx(quiet ? "paper-quiet" : "paper", "p-4", className)} {...props} />;
 }
 
 /** 卡片內的分隔線（列與列之間）。 */
 export function Divider({ className }: { className?: string }) {
   return <hr className={cx("border-dashed border-line", className)} />;
 }
+
+/**
+ * 日期輸入。
+ *
+ * 原生 date input 的顯示格式是瀏覽器／系統地區設定決定的，網頁改不了
+ * （在英文系統上會顯示成 09/25/2026）。與其自己做一個日期元件，
+ * 這裡只在旁邊補一行台灣格式的回聲，讓人一眼確認自己選到哪一天。
+ */
+export { DateInput } from "./DateInput";
 
 /* ─────────────────────────────── 按鈕 ─────────────────────────────── */
 
@@ -195,9 +209,10 @@ export function ProgressBar({
 }: {
   value: number;
   className?: string;
-  tone?: "brand" | "green" | "orange" | "red";
+  tone?: "brand" | "green" | "orange" | "red" | "me" | "partner" | "joint";
 }) {
-  const colors = { brand: "bg-brand-500", green: "bg-brand-500", orange: "bg-orange-400", red: "bg-red-500" };
+  // 同一個橘色系的三階：給「我／對方／共同」這種需要分辨但不該搶戲的比較用
+  const colors = { brand: "bg-brand-500", green: "bg-brand-500", orange: "bg-orange-400", red: "bg-red-500", me: "bg-brand-600", partner: "bg-brand-400", joint: "bg-brand-200" };
   const pct = Math.max(0, Math.min(1, value)) * 100;
   return (
     <div

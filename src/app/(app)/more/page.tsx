@@ -15,6 +15,7 @@ const MENU: Array<{ title: string; items: Array<{ href: string; icon: string; la
   {
     title: "管理",
     items: [
+      { href: "/preorders", icon: "package", label: "預購", sub: "已付、待結、運費、預計到貨" },
       { href: "/accounts", icon: "credit-card", label: "帳戶管理", sub: "新增帳戶、餘額、可自由使用的錢" },
       { href: "/categories", icon: "tag", label: "分類管理", sub: "新增、改名、停用" },
       { href: "/recurring", icon: "calendar-clock", label: "固定支出", sub: "房租、訂閱、每月自動提醒" },

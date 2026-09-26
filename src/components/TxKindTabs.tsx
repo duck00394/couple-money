@@ -18,11 +18,18 @@ export function TxKindTabs({ active }: { active: "new" | "transfer" | "refund" }
           <Link
             key={t.href}
             href={t.href}
-            className={cx("rounded-2xl px-2 py-2 text-center shadow-sm", on ? "bg-brand-200 text-stone-800" : "bg-white text-stone-700 active:bg-stone-50")}
+            className={cx(
+              "rounded-2xl px-2 py-1.5 text-center shadow-sm",
+              on ? "bg-brand-200 text-stone-800 ring-1 ring-brand-400" : "bg-white text-stone-700 active:bg-stone-50",
+            )}
           >
-            <span className="mb-0.5 flex justify-center"><ArtIcon name={t.icon} size={18} /></span>
-            <span className="block text-sm font-semibold">{t.label}</span>
-            <span className={cx("block text-[10px]", on ? "text-white/80" : "text-stone-400")}>{t.hint}</span>
+            {/* 圖示與標題同一行：金額與分類才是主角，分頁不該佔掉第一屏 */}
+            <span className="flex items-center justify-center gap-1">
+              <ArtIcon name={t.icon} size={15} />
+              <span className="text-sm font-semibold">{t.label}</span>
+            </span>
+            {/* 選中時底色是淺橘，白字看不見，要用深色 */}
+            <span className={cx("block text-[10px] leading-tight", on ? "text-brand-700" : "text-stone-400")}>{t.hint}</span>
           </Link>
         );
       })}

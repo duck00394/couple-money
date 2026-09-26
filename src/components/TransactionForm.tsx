@@ -3,9 +3,11 @@
 import { useActionState, useMemo, useState } from "react";
 import { deleteTransactionAction, saveTransactionAction } from "@/app/actions/transactions";
 import { formatMoney, parseAmount, toInputString } from "@/lib/money";
+import { initialCalc, isPending, press, type CalcState } from "@/lib/calc";
 import { computeSplit, type SplitMethod, type SplitRule } from "@/server/domain/split";
+import { normalizeTags } from "@/server/domain/search";
 import { DomainError } from "@/server/domain/errors";
-import { Button, cx, ErrorText, Field, Input, inputClass } from "./ui";
+import { Button, cx, DateInput, ErrorText, Field, Input, inputClass } from "./ui";
 import { ArtIcon } from "./ArtIcon";
 
 type Member = { userId: string; nickname: string };
@@ -45,6 +47,10 @@ export function TransactionForm(props: {
   returnTo?: string;
   funds?: Array<{ id: string; name: string; balance: number; isArchived: boolean }>;
   allocations?: Array<{ fundId: string; accountId: string; amount: number }>;
+  /** 最近常用的組合（由既有記帳歸納，不是模板資料表） */
+  presets?: Array<{ title: string; categoryId: string | null; accountId: string; splitRule: unknown; count: number }>;
+  /** 最近用過的標籤（由既有 Tag 資料表歸納，不是新的資料模型） */
+  tagOptions?: string[];
   defaultFundId?: string | null;
   defaultAccountId?: string | null;
 }) {
@@ -52,7 +58,14 @@ export function TransactionForm(props: {
   const members = partner ? [me, partner] : [me];
   const [clientRequestId] = useState(() => crypto.randomUUID());
   const [type, setType] = useState<"EXPENSE" | "INCOME">(initial?.type ?? "EXPENSE");
-  const [amountStr, setAmountStr] = useState(initial ? toInputString(initial.amount) : "");
+  // 金額由小計算機驅動：calc.input 就是輸入框裡的字，兩邊永遠一致
+  const [calc, setCalc] = useState<CalcState>(() =>
+    initial ? { ...initialCalc, input: toInputString(initial.amount), replace: false } : initialCalc,
+  );
+  const amountStr = calc.input === "0" && calc.replace && !initial ? "" : calc.input;
+  const setAmountStr = (v: string) => setCalc({ ...initialCalc, input: v === "" ? "0" : v, replace: v === "" });
+  const pendingCalc = isPending(calc);
+  const key = (k: string) => setCalc((c) => press(c, k));
   const [accountId, setAccountId] = useState(
     initial?.accountId ?? props.defaultAccountId ?? accounts.find((a) => a.ownerId === me.userId)?.id ?? accounts[0]?.id ?? "",
   );
@@ -60,6 +73,12 @@ export function TransactionForm(props: {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [tagText, setTagText] = useState((initial?.tags ?? []).map((t) => `#${t}`).join(" "));
+  // 輸入框才是唯一的真相；chip 的選取狀態一律從輸入框推導，兩邊不可能不同步
+  const pickedTags = normalizeTags(tagText);
+  const toggleTag = (name: string) => {
+    const next = pickedTags.includes(name) ? pickedTags.filter((t) => t !== name) : [...pickedTags, name];
+    setTagText(next.map((t) => `#${t}`).join(" "));
+  };
   const [date, setDate] = useState(initial?.occurredOn ?? today);
   const [fundId, setFundId] = useState<string>(initial?.fundId ?? props.defaultFundId ?? "");
   const [fundAccountId, setFundAccountId] = useState<string>(initial?.fundAccountId ?? "");
@@ -119,7 +138,7 @@ export function TransactionForm(props: {
     categoryId,
     title,
     note,
-    tags: tagText.split(/[,，、\s]+/).map((t) => t.replace(/^#+/, "").trim()).filter(Boolean),
+    tags: normalizeTags(tagText),
     occurredOn: date,
     split: rule,
     clientRequestId,
@@ -147,7 +166,7 @@ export function TransactionForm(props: {
     { label: "共同", items: accounts.filter((a) => a.ownerId === null) },
   ].filter((g) => g.items.length > 0);
 
-  const canSubmit = !!amount && !!accountId && !preview.error && !pending && (!fundId || !!fundAccountId);
+  const canSubmit = !!amount && !!accountId && !preview.error && !pending && !pendingCalc && (!fundId || !!fundAccountId);
 
   return (
     <div className="pb-submit-bar px-4">
@@ -175,8 +194,12 @@ export function TransactionForm(props: {
           ))}
         </div>
 
-        <div className="rounded-3xl bg-white px-5 py-4 shadow-xs ring-1 ring-line/70 ring-1 ring-brand-100">
-          <span className="text-xs font-medium text-stone-500">金額</span>
+        <div className="rounded-3xl bg-white px-5 py-3.5 shadow-xs ring-1 ring-brand-100">
+          <div className="flex min-h-[18px] items-center justify-between gap-2">
+            <span className="text-xs font-medium text-stone-500">金額</span>
+            {/* 算式列：按了運算子才會出現，方便核對「299 + 129 +」 */}
+            <span className="tnum truncate text-xs text-stone-400" data-testid="calc-expr">{calc.expr}</span>
+          </div>
           <div className="flex items-center gap-1.5">
             <span className="text-3xl font-bold text-brand-400">$</span>
             <input
@@ -185,33 +208,73 @@ export function TransactionForm(props: {
               inputMode="decimal"
               autoFocus={!initial}
               value={amountStr}
-              onChange={(e) => setAmountStr(e.target.value.replace(/[^\d.,]/g, ""))}
+              onChange={(e) => setAmountStr(e.target.value.replace(/[^\d.]/g, ""))}
               placeholder="0"
               className="amount-lg w-full bg-transparent text-5xl text-stone-800 outline-none placeholder:text-stone-300"
             />
           </div>
-          {amountStr && !amount && <p className="mt-1 text-xs text-red-600">請輸入正確金額（最多兩位小數）</p>}
+          {calc.error && <p className="mt-1 text-xs text-red-600" role="alert">{calc.error}</p>}
+          {!calc.error && amountStr && !amount && <p className="mt-1 text-xs text-red-600">請輸入正確金額（最多兩位小數）</p>}
+          {!calc.error && pendingCalc && <p className="mt-1 text-xs text-brand-600">算式還沒算完，按「＝」得到金額</p>}
         </div>
 
-        {/* 數字鍵盤：直接寫進上面同一個 amountStr，鍵盤與輸入框永遠一致 */}
-        <div className="grid grid-cols-3 gap-2" data-testid="amount-keypad">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "del"].map((k) => (
-            <button
-              key={k}
-              type="button"
-              aria-label={k === "del" ? "刪除一個字" : k}
-              onClick={() =>
-                setAmountStr((v) =>
-                  k === "del" ? v.slice(0, -1)
-                  : k === "." ? (v.includes(".") ? v : (v || "0") + ".")
-                  : (v + k).replace(/^0(?=\d)/, ""),
-                )
-              }
-              className="press flex h-12 items-center justify-center rounded-xl border-[1.5px] border-stone-800 bg-brand-100 text-xl font-semibold text-stone-800 shadow-xs active:translate-y-px active:shadow-none"
-            >
-              {k === "del" ? <ArtIcon name="undo" size={20} /> : k}
-            </button>
-          ))}
+        {/* 最近常用：帶入分類／帳戶／分帳，金額仍然要自己輸入，不會一按就記帳 */}
+        {!initial && (props.presets?.length ?? 0) > 0 && (
+          <div className="-mx-4 overflow-x-auto px-4" data-testid="recent-presets">
+            <div className="flex w-max gap-2">
+              {props.presets!.map((p) => {
+                const cat = categories.find((c) => c.id === p.categoryId);
+                return (
+                  <button
+                    key={`${p.title}|${p.categoryId}|${p.accountId}`}
+                    type="button"
+                    onClick={() => {
+                      setTitle(p.title);
+                      setCategoryId(p.categoryId);
+                      setAccountId(p.accountId);
+                      const m = (p.splitRule as { method?: string } | null)?.method;
+                      if (m === "EQUAL" || m === "RATIO" || m === "AMOUNT" || m === "FULL") setMethod(m);
+                    }}
+                    className="press flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-2 text-[13px] text-stone-700 shadow-xs ring-1 ring-line"
+                  >
+                    {cat && <ArtIcon name={cat.icon} size={15} />}
+                    {p.title}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 計算機鍵盤：+ − × ÷ % 都是真的會算，不是裝飾。邏輯在 src/lib/calc.ts */}
+        <div className="grid grid-cols-4 gap-1.5" data-testid="amount-keypad">
+          {([
+            ["AC", "清除"], ["÷", "除"], ["×", "乘"], ["del", "刪除一個字"],
+            ["7", "7"], ["8", "8"], ["9", "9"], ["-", "減"],
+            ["4", "4"], ["5", "5"], ["6", "6"], ["+", "加"],
+            ["1", "1"], ["2", "2"], ["3", "3"], ["%", "百分比"],
+            ["0", "0"], [".", "小數點"], ["±", "正負號"], ["=", "等於"],
+          ] as const).map(([k, label]) => {
+            const isOp = ["÷", "×", "-", "+", "="].includes(k);
+            const isFn = ["AC", "del", "%", "±"].includes(k);
+            return (
+              <button
+                key={k}
+                type="button"
+                aria-label={label}
+                onClick={() => key(k)}
+                className={cx(
+                  "press flex h-11 items-center justify-center rounded-xl text-lg font-semibold shadow-xs active:translate-y-px active:shadow-none",
+                  k === "=" ? "bg-brand-500 text-white"
+                  : isOp ? "bg-brand-200 text-brand-700"
+                  : isFn ? "bg-stone-100 text-stone-600"
+                  : "bg-white text-stone-800 ring-1 ring-line",
+                )}
+              >
+                {k === "del" ? <ArtIcon name="undo" size={18} /> : k === "-" ? "−" : k}
+              </button>
+            );
+          })}
         </div>
 
         <div>
@@ -239,7 +302,7 @@ export function TransactionForm(props: {
             <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={50} placeholder={cats.find((c) => c.id === categoryId)?.name ?? "例如：晚餐"} />
           </Field>
           <Field label="日期">
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required className="w-[9.5rem]" />
+            <DateInput value={date} onChange={(e) => setDate(e.target.value)} required className="w-[9.5rem]" />
           </Field>
         </div>
 
@@ -416,6 +479,29 @@ export function TransactionForm(props: {
           <Field label="標籤（選填）" hint="用空白分隔，例如：#約會 #日本旅行">
             <Input aria-label="標籤" value={tagText} onChange={(e) => setTagText(e.target.value)} maxLength={200} placeholder="#約會" />
           </Field>
+          {/* 最近用過的標籤：點一下加入、再點一下移除。輸入框仍然可以直接打新的，
+              打完存檔後下次就會出現在這裡（標籤存在既有的 Tag 資料表，沒有第二套邏輯）。 */}
+          {(props.tagOptions?.length ?? 0) > 0 && (
+            <div className="-mt-2 flex flex-wrap gap-1.5" data-testid="tag-chips">
+              {props.tagOptions!.map((t) => {
+                const on = pickedTags.includes(t);
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleTag(t)}
+                    className={cx(
+                      "press rounded-full px-3 py-1.5 text-[13px] shadow-xs transition",
+                      on ? "bg-brand-500 font-semibold text-white" : "bg-white text-stone-700 ring-1 ring-line",
+                    )}
+                  >
+                    #{t}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <Field label="備註（選填）">
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} className={cx(inputClass, "h-auto py-2.5")} />
           </Field>
@@ -425,7 +511,7 @@ export function TransactionForm(props: {
 
         <div className="sticky-submit-bar">
           <Button type="submit" className="w-full" disabled={!canSubmit}>
-            {pending ? "儲存中…" : initial ? "儲存修改" : "記下來"}
+            {pending ? "儲存中…" : pendingCalc ? "先按 ＝ 算出金額" : initial ? "儲存修改" : "記下來"}
           </Button>
         </div>
       </form>

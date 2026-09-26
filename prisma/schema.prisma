@@ -29,6 +29,7 @@ model User {
 
   sessions    Session[]
   memberships BookMember[]
+  preorders   Preorder[]   @relation("PreorderOwner")
 }
 
 model Session {
@@ -101,6 +102,7 @@ model Book {
 
   // Phase 3-3
   recurringExpenses RecurringExpense[]
+  preorders         Preorder[]
 }
 
 model Couple {
@@ -294,6 +296,9 @@ model Transaction {
   recurringExpenseId String?
   recurring          RecurringExpense? @relation(fields: [recurringExpenseId], references: [id])
   recurringDueDate   DateTime?         @db.Date
+  // 預購：這筆付款屬於哪一張預購單（只是關聯，金額計算完全沿用既有邏輯）
+  preorderId         String?
+  preorder           Preorder?         @relation(fields: [preorderId], references: [id])
   clientRequestId    String // 防重送（idempotency key）
   version            Int               @default(1)
   createdById        String
@@ -774,4 +779,40 @@ model RecurringExpense {
   transactions Transaction[]
 
   @@index([bookId, status, nextDueDate])
+}
+
+/// 預購訂單。
+///
+/// 只負責「把屬於同一張訂單的付款串起來」，本身**不存任何金額狀態**：
+/// 已付＝這張單底下所有有效 EXPENSE 的總和（扣掉退款），待結＝應付總額 − 已付。
+/// 所以帳戶餘額、分帳、統計、CSV、退款全部沿用既有那一套，沒有第二套付款系統。
+///
+/// 待結款不是支出：還沒付的錢不會扣帳戶、也不會進統計，直到真的建立那筆 Transaction。
+model Preorder {
+  id          String    @id @default(cuid())
+  bookId      String
+  book        Book      @relation(fields: [bookId], references: [id])
+  name        String
+  seller      String?
+  emoji       String    @default("package")
+  /// 預計到貨日（只有日期，沒有時間）
+  expectedOn  DateTime? @db.Date
+  /// 商品金額（最小單位，$1 = 100）
+  itemAmount  Int
+  /// 運費（併進應付總額，結款時一起付）
+  shipping    Int       @default(0)
+  /// 誰的：null = 共同
+  ownerId     String?
+  owner       User?     @relation("PreorderOwner", fields: [ownerId], references: [id])
+  note        String?
+  /// 取消時間。取消不會自動產生任何金流，實際退款請走既有的退款流程。
+  cancelledAt DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  payments Transaction[]
+
+  @@index([bookId, cancelledAt, expectedOn])
 }

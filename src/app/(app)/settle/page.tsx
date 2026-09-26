@@ -1,19 +1,28 @@
 import { DebtCard } from "@/components/DebtCard";
+import { DebtPicker } from "@/components/DebtPicker";
 import { CancelSettlementButton, SettleForm } from "@/components/SettleForm";
-import { Card, PageHeader, SectionTitle } from "@/components/ui";
+import { Card, Collapsible, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { dateHeading, toDateKey } from "@/lib/dates";
 import { getAppContext } from "@/server/context";
 import { ACCOUNT_TYPE_ICON, getBalances, listAccounts, listSettlements } from "@/server/services/ledger";
+import { myDebtItems } from "@/server/services/debts";
 import { ArtIcon } from "@/components/ArtIcon";
 
 export default async function SettlePage() {
   const { ctx } = await getAppContext();
-  const [balances, accounts, history] = await Promise.all([getBalances(ctx), listAccounts(ctx), listSettlements(ctx)]);
+  const [balances, accounts, history, debtItems] = await Promise.all([
+    getBalances(ctx),
+    listAccounts(ctx),
+    listSettlements(ctx),
+    myDebtItems(ctx),
+  ]);
   const debt = balances.debts[0];
   const name = (id: string) => (id === ctx.me.userId ? "我" : ctx.members.find((m) => m.userId === id)?.nickname ?? "已離開的成員");
   const accountsOf = (uid: string) =>
     accounts.filter((a) => a.ownerId === uid).map((a) => ({ id: a.id, name: a.name, icon: ACCOUNT_TYPE_ICON[a.type] }));
+  // 逐筆勾選只在「我欠對方」時才有意義；對方欠我時不混進同一個選擇器
+  const iOwe = !!debt && debt.from === ctx.me.userId;
 
   return (
     <>
@@ -21,18 +30,38 @@ export default async function SettlePage() {
       <div className="px-4">
         <DebtCard ctx={ctx} debt={debt} compact />
 
-        {debt && ctx.canWrite && (
-          <Card className="mt-3">
-            <SettleForm key={`${debt.from}-${debt.to}-${debt.amount}`}
+        {iOwe && ctx.canWrite && (
+          <div className="mt-3" data-testid="debt-picker">
+            <DebtPicker
+              key={`${debt.from}-${debt.to}-${debt.amount}`}
               fromUserId={debt.from}
               toUserId={debt.to}
               fromName={name(debt.from)}
               toName={name(debt.to)}
-              max={debt.amount}
+              items={debtItems.items}
+              total={debtItems.total}
+              unassignedCredit={debtItems.unassignedCredit}
               fromAccounts={accountsOf(debt.from)}
               toAccounts={accountsOf(debt.to)}
             />
-          </Card>
+          </div>
+        )}
+
+        {/* 對方欠我、或想自己輸入金額時，仍然可以用原本的結算表單 */}
+        {debt && ctx.canWrite && (
+          <Collapsible title={iOwe ? "自己輸入金額結算" : `記錄 ${name(debt.from)} 還給 ${name(debt.to)}`} open={!iOwe}>
+            <Card>
+              <SettleForm key={`${debt.from}-${debt.to}-${debt.amount}`}
+                fromUserId={debt.from}
+                toUserId={debt.to}
+                fromName={name(debt.from)}
+                toName={name(debt.to)}
+                max={debt.amount}
+                fromAccounts={accountsOf(debt.from)}
+                toAccounts={accountsOf(debt.to)}
+              />
+            </Card>
+          </Collapsible>
         )}
 
         <p className="mt-3 px-1 text-xs leading-relaxed text-stone-500">

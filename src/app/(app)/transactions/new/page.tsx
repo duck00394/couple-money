@@ -3,13 +3,13 @@ import { TxKindTabs } from "@/components/TxKindTabs";
 import { PageHeader } from "@/components/ui";
 import { getAppContext } from "@/server/context";
 import { assertCanWrite } from "@/server/services/books";
-import { loadTxFormOptions } from "@/server/txFormData";
+import { loadTxFormOptions, recentPresets } from "@/server/txFormData";
 
 export default async function NewTransactionPage({ searchParams }: PageProps<"/transactions/new">) {
   const sp = await searchParams;
   const { ctx } = await getAppContext();
   assertCanWrite(ctx);
-  const options = await loadTxFormOptions(ctx);
+  const [options, presets] = await Promise.all([loadTxFormOptions(ctx), recentPresets(ctx)]);
   const fundId = typeof sp.fund === "string" ? sp.fund : null;
   // 從哪裡來就回哪裡去（只接受站內路徑），記完帳才看得到自己剛記的那一筆
   const rawFrom = typeof sp.from === "string" ? sp.from : "";
@@ -27,6 +27,7 @@ export default async function NewTransactionPage({ searchParams }: PageProps<"/t
       <PageHeader title="記一筆" back={fundId ? `/funds/${fundId}` : from ?? "/"} />
       <TxKindTabs active="new" />
       <TransactionForm
+        presets={presets}
         {...options}
         returnTo={fundId ? `/funds/${fundId}` : from ?? "/"}
         defaultFundId={fundId}

@@ -254,6 +254,8 @@ export interface TransactionInput {
   /** Phase 3-3：由哪一筆固定支出、哪一個應付日產生（只在建立時使用） */
   recurringExpenseId?: string | null;
   recurringDueDate?: string | null;
+  /** V5：這筆付款屬於哪一張預購單（只是關聯，金額計算完全不變） */
+  preorderId?: string | null;
 }
 
 /** 設定交易的標籤（同帳本同名標籤共用一筆 Tag）。 */
@@ -329,6 +331,7 @@ export async function createTransactionIn(tx: Tx, ctx: BookContext, input: Trans
       clientRequestId: input.clientRequestId,
       recurringExpenseId: input.recurringExpenseId ?? null,
       recurringDueDate: input.recurringDueDate ? keyToDbDate(input.recurringDueDate) : null,
+      preorderId: input.preorderId ?? null,
       createdById: ctx.me.userId,
       updatedById: ctx.me.userId,
       payments: { create: lines.payments },

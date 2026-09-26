@@ -209,6 +209,14 @@ input[type="number"]::-webkit-outer-spin-button {
 .paper-solid {
   border-style: solid;
 }
+/* 次要容器：清單分組、細項、輔助資訊。
+   虛線是強調，如果每一個容器都畫虛線，它就只是噪音 —— 所以次要的只用一條髮絲線。 */
+.paper-quiet {
+  background: var(--color-white);
+  border: 1px solid var(--color-line);
+  border-radius: 0.875rem;
+  box-shadow: none;
+}
 .hand {
   font-family: var(--font-hand);
 }

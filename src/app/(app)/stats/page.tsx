@@ -76,22 +76,22 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
               </Link>
               <Link href={drill({ kind: "INCOME" })} className="flex items-baseline justify-between border-t border-line px-5 py-3.5 active:bg-stone-50">
                 <span className="text-sm text-stone-500">收入<span className="ml-2 text-[11px] text-stone-400">不含轉帳與結算</span></span>
-                <span className="amount text-xl text-emerald-600" data-testid="stats-income">{formatMoney(stats.totals.income)}</span>
+                <span className="amount text-xl text-brand-600" data-testid="stats-income">{formatMoney(stats.totals.income)}</span>
               </Link>
             </Card>
 
             <SectionTitle>誰掏錢（實際付出去的）</SectionTitle>
-            <Card className="divide-y divide-line p-0">
-              <BarRow label="我" amount={stats.paid.me} ratio={ratio(stats.paid.me)} testId="paid-me" />
-              <BarRow label={partnerName} amount={stats.paid.partner} ratio={ratio(stats.paid.partner)} tone="orange" testId="paid-partner" />
-              <BarRow label="共同帳戶" amount={stats.paid.joint} ratio={ratio(stats.paid.joint)} tone="stone" testId="paid-joint" />
+            <Card quiet className="divide-y divide-line p-0">
+              <BarRow label="我" amount={stats.paid.me} ratio={ratio(stats.paid.me)} tone="me" testId="paid-me" />
+              <BarRow label={partnerName} amount={stats.paid.partner} ratio={ratio(stats.paid.partner)} tone="partner" testId="paid-partner" />
+              <BarRow label="共同帳戶" amount={stats.paid.joint} ratio={ratio(stats.paid.joint)} tone="joint" testId="paid-joint" />
               <p className="px-4 py-2.5 text-[11px] text-stone-400">三項加總 = 淨支出；退款收回的錢會從付款的那個帳戶扣回去。</p>
             </Card>
 
             <SectionTitle>誰負擔（分帳後實際要承擔的）</SectionTitle>
-            <Card className="divide-y divide-line p-0">
-              <BarRow label="我" amount={stats.borne.me} ratio={ratio(stats.borne.me)} testId="borne-me" />
-              <BarRow label={partnerName} amount={stats.borne.partner} ratio={ratio(stats.borne.partner)} tone="orange" testId="borne-partner" />
+            <Card quiet className="divide-y divide-line p-0">
+              <BarRow label="我" amount={stats.borne.me} ratio={ratio(stats.borne.me)} tone="me" testId="borne-me" />
+              <BarRow label={partnerName} amount={stats.borne.partner} ratio={ratio(stats.borne.partner)} tone="partner" testId="borne-partner" />
               <p className="px-4 py-2.5 text-[11px] text-stone-400">
                 共同帳戶付的錢，負擔還是會分給兩個人（只是不產生誰欠誰），所以這裡沒有「共同」這一項。
               </p>
@@ -100,7 +100,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
             {stats.categories.length > 0 && (
               <>
                 <SectionTitle right={<Link href={drill()} className="text-sm text-brand-600">看明細</Link>}>分類佔比</SectionTitle>
-                <Card className="divide-y divide-line p-0">
+                <Card quiet className="divide-y divide-line p-0">
                   {stats.categories.map((c) => (
                     <BarRow
                       key={c.categoryId ?? "none"}
@@ -122,8 +122,8 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
         <Card className="p-0">
           <MiniTrend points={trend} labelOf={label} />
           <p className="px-4 pb-3 text-[11px] text-stone-400">
-            <span className="mr-1 inline-block h-2 w-2 rounded-full bg-brand-400 align-middle" />淨支出
-            <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" />收入
+            <span className="mr-1 inline-block h-2 w-2 rounded-full bg-brand-600 align-middle" />淨支出
+            <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full bg-brand-200 ring-1 ring-inset ring-brand-400 align-middle" />收入
           </p>
         </Card>
 
@@ -152,7 +152,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
         {funds.length > 0 && (
           <>
             <SectionTitle right={<Link href="/goals" className="text-sm text-brand-600">全部</Link>}>目前基金</SectionTitle>
-            <Card className="divide-y divide-line p-0">
+            <Card quiet className="divide-y divide-line p-0">
               {funds.map((f) => (
                 <div key={f.id} className="flex items-baseline justify-between gap-2 px-4 py-3 text-sm" data-testid="stats-fund">
                   <span className="flex min-w-0 flex-1 items-center gap-2 truncate"><ArtIcon name={f.emoji} size={15} className="text-stone-400" />{f.name}</span>
