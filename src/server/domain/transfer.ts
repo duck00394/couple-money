@@ -7,6 +7,7 @@
  */
 import { formatMoney, MAX_AMOUNT } from "../../lib/money";
 import { assert, DomainError } from "./errors";
+import { freeAmount } from "./balance";
 
 export interface TransferAccount {
   id: string;
@@ -19,10 +20,14 @@ export interface TransferAccount {
   earmarked: number;
 }
 
-/** 可自由使用金額 = 餘額 − 已指定給基金。 */
-export function freeAmount(a: { balance: number; earmarked: number }): number {
-  return a.balance - a.earmarked;
-}
+/**
+ * 這個檢查是在做什麼動作 —— 只影響錯誤訊息的措辭，規則本身完全一樣。
+ *   cancel = 作廢既有紀錄、spend = 花錢（記帳／轉帳）、settle = 結算欠款
+ */
+export type EarmarkAction = "cancel" | "spend" | "settle";
+
+/** 可自由使用金額。公式只有一份，在 domain/balance.ts；這裡只是換成帳戶物件的寫法。 */
+export const freeOf = (a: { balance: number; earmarked: number }) => freeAmount(a.balance, a.earmarked);
 
 /** 轉帳前的檢查；不合法時丟出帶有清楚訊息的 DomainError。 */
 export function assertTransferable(from: TransferAccount, to: TransferAccount, amount: number): void {
@@ -34,7 +39,7 @@ export function assertTransferable(from: TransferAccount, to: TransferAccount, a
     "TRANSFER_FROM_CARD",
     `「${from.name}」是信用卡，不能當轉出帳戶。要繳卡費請從現金或銀行帳戶轉入信用卡。`,
   );
-  const free = freeAmount(from);
+  const free = freeOf(from);
   if (amount <= free) return;
   if (amount > from.balance) {
     throw new DomainError(
@@ -54,16 +59,20 @@ export function assertTransferable(from: TransferAccount, to: TransferAccount, a
  * 任何會讓帳戶餘額變少的動作（轉帳、支出、改金額、刪除收入、作廢轉帳）之後都要通過這個檢查，
  * 否則基金會出現「帳上有、實際沒有」的金額。沒有指定給基金的帳戶不受影響（餘額可以是負的）。
  */
-export function assertEarmarkBacked(accounts: TransferAccount[], action: "cancel" | "spend" = "cancel"): void {
+export function assertEarmarkBacked(accounts: TransferAccount[], action: EarmarkAction = "cancel"): void {
   for (const a of accounts) {
     if (a.earmarked <= 0) continue;
-    if (freeAmount(a) < 0) {
+    if (freeOf(a) < 0) {
       const state = `「${a.name}」的餘額 ${formatMoney(a.balance)} 會少於已指定給基金的 ${formatMoney(a.earmarked)}`;
+      const free = formatMoney(Math.max(0, freeOf(a)));
       throw new DomainError(
         "TRANSFER_EARMARK_BACKING",
         action === "cancel"
           ? `作廢後${state}。請先從基金取回這筆錢，再作廢這筆紀錄。`
-          : `這樣${state}。基金指定的錢不能拿去做別的用途：請改用其他帳戶付款、把這筆標記為基金支出，或先從基金取回。`,
+          : action === "settle"
+            ? `「${a.name}」有 ${formatMoney(a.earmarked)} 已指定給基金，目前可自由使用 ${free}，無法用這筆錢結算。` +
+              `請改用其他帳戶結算，或先從基金取回。`
+            : `這樣${state}。基金指定的錢不能拿去做別的用途：請改用其他帳戶付款、把這筆標記為基金支出，或先從基金取回。`,
       );
     }
   }

@@ -148,7 +148,9 @@ export async function v4Daily(a: Page, b: Page) {
   await expect(a.getByTestId("checkin-status")).toContainText("下週才能再做一次");
   await expect(a.getByRole("button", { name: "完成本週" }), "本週不能再做一次").toHaveCount(0);
   const weekTasks = await pageText(a, "/tasks");
-  expect(weekTasks).toContain("本週已完成");
+  // 完成之後只留在佈告欄，不再重複出現在「今天」待做清單
+  await expect(a.getByTestId("task-note").filter({ hasText: "每週運動" })).toHaveCount(1);
+  await expect(a.getByRole("button", { name: /打卡 每週運動/ })).toHaveCount(0);
   expect(weekTasks, "不該出現程式用語").not.toMatch(/WEEKLY/);
   await shot(a, "55-weekly-done");
   step("本週完成一次後：顯示「本週已完成」，本週不能再完成");
@@ -158,7 +160,9 @@ export async function v4Daily(a: Page, b: Page) {
   const benWeek = b.getByTestId("task-row").filter({ hasText: "每週運動" }).first();
   await expect(benWeek.getByRole("button", { name: /打卡 每週運動/ })).toBeVisible();
   await benWeek.getByRole("button", { name: /打卡 每週運動/ }).click();
-  await expect(b.getByTestId("task-row").filter({ hasText: "每週運動" }).first()).toContainText("本週已完成");
+  // 完成之後就從「今天」待做清單移到佈告欄，不再重複出現
+  await expect(b.getByTestId("task-note").filter({ hasText: "每週運動" })).toHaveCount(1);
+  await expect(b.getByTestId("task-row").filter({ hasText: "每週運動" }).filter({ has: b.getByRole("button", { name: /打卡 每週運動/ }) })).toHaveCount(0);
   step("每週 × 各自完成：小艾本週已完成不影響阿本，阿本仍然可以完成");
 
   // 8b. 獎勵提列 → 在記帳明細找得到那筆收入 → 作廢後獎勵回到「我的獎勵」

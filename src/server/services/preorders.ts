@@ -15,7 +15,7 @@ import { prisma } from "../db";
 import { assert } from "../domain/errors";
 import { itemsTotal, moneyOf, sharesOf, stateOf, sortKey, daysUntil, type PreorderMoney, type PreorderShare, type PreorderState } from "../domain/preorder";
 import { computeSplit, type SplitRule } from "../domain/split";
-import { MAX_AMOUNT } from "@/lib/money";
+import { formatMoney, MAX_AMOUNT } from "@/lib/money";
 import { dbDateToKey, keyToDbDate, toDateKey } from "@/lib/dates";
 import { toIconKey } from "@/lib/icons";
 import { assertCanWrite, type BookContext } from "./books";
@@ -126,6 +126,13 @@ export async function updatePreorder(ctx: BookContext, id: string, input: Preord
   const before = await prisma.preorder.findFirst({ where: { id, bookId: ctx.book.id, deletedAt: null } });
   assert(before, "PREORDER_NOT_FOUND", "找不到這張預購");
   const { data, items } = validate(ctx, input);
+
+  // 把總額改到低於已付金額是合理的（降價、少買一件），所以不阻擋；
+  // 但要讓這件事在動態紀錄裡看得出來，之後對帳才知道超付是哪一次改出來的。
+  const paidBefore = (await getPreorder(ctx, id))?.money.paid ?? 0;
+  const newTotal = data.itemAmount + data.shipping;
+  const overpaidAfter = Math.max(0, paidBefore - newTotal);
+
   const row = await prisma.$transaction(async (tx) => {
     // 明細品項整批換掉：數量會變、順序會變，一列一列比對沒有意義
     if (items !== undefined) {
@@ -134,7 +141,11 @@ export async function updatePreorder(ctx: BookContext, id: string, input: Preord
     }
     return tx.preorder.update({ where: { id }, data });
   });
-  await auditIn(prisma, ctx, "UPDATE", "Preorder", id, before, { ...data, items });
+  await auditIn(prisma, ctx, "UPDATE", "Preorder", id, before, {
+    ...data,
+    items,
+    ...(overpaidAfter > 0 ? { paidBefore, overpaidAfter } : {}),
+  });
   return row;
 }
 
@@ -313,9 +324,22 @@ export async function payPreorder(
   input: Omit<TransactionInput, "type" | "preorderId"> & { type?: "EXPENSE" },
 ) {
   assertCanWrite(ctx);
-  const po = await prisma.preorder.findFirst({ where: { id, bookId: ctx.book.id, deletedAt: null } });
-  assert(po, "PREORDER_NOT_FOUND", "找不到這張預購");
+  // 用既有的讀取路徑拿狀態，狀態一律由 Transaction 現算，不另外判斷一次
+  const view = await getPreorder(ctx, id);
+  assert(view, "PREORDER_NOT_FOUND", "找不到這張預購");
+
+  // 只有「進行中」才能付款。已結清再付會變成超付、已取消再付更是憑空多一筆支出，
+  // 這條規則必須在這裡成立 —— UI 只是第二層防護。
+  assert(
+    view.state === "ACTIVE",
+    "PREORDER_NOT_PAYABLE",
+    view.state === "CANCELLED"
+      ? "這張預購已經取消，不能再記錄付款。如果實際有退款，請到那筆付款走退款流程。"
+      : `這張預購已經付清（應付 ${formatMoney(view.money.total)}、已付 ${formatMoney(view.money.paid)}），不能再記錄付款。` +
+        "如果總額有變，請先修改預購金額。",
+  );
+
   // 沒指定分類時帶預購自己的預設，統計才不會整包落在「未分類」
-  const categoryId = input.categoryId ?? po.categoryId;
+  const categoryId = input.categoryId ?? view.categoryId;
   return createTransaction(ctx, { ...input, categoryId, type: "EXPENSE", preorderId: id });
 }

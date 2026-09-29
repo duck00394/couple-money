@@ -158,8 +158,8 @@ export async function phase2(a: Page, b: Page) {
   await shot(a, "p2-03-tasks");
   step("共同任務完成；今日獲得獎金 +$100（尚未入金）");
 
-  // 取消與重新打卡
-  await a.getByTestId("task-row").filter({ hasText: "英文 30 分鐘" }).first().getByRole("link").first().click();
+  // 取消與重新打卡（完成的任務只留在佈告欄，不再重複出現在「今天」待做清單）
+  await a.getByTestId("task-note").filter({ hasText: "英文 30 分鐘" }).first().click();
   await a.getByRole("button", { name: "取消打卡" }).click();
   await expect(a.getByRole("button", { name: "完成打卡" })).toBeVisible();
   await openFund(a, "日本旅遊基金");
@@ -183,7 +183,7 @@ export async function phase2(a: Page, b: Page) {
 
   // 權限：阿本不能改小艾建立的任務金額、不能刪除
   await go(b, "/tasks");
-  await b.getByTestId("task-row").filter({ hasText: "英文 30 分鐘" }).first().getByRole("link").first().click();
+  await b.getByTestId("task-note").filter({ hasText: "英文 30 分鐘" }).first().click();
   await b.getByText("編輯任務").click();
   await expect(b.getByTestId("task-locked-note")).toContainText("只有建立者（小艾）");
   await expect(b.getByLabel("完成獎金")).toBeDisabled();

@@ -34,7 +34,7 @@ export default async function FundDetailPage({ params }: PageProps<"/funds/[id]"
 
   return (
     <>
-      <PageHeader title={fund.name} back="/goals" />
+      <PageHeader title={fund.name} back="/funds" />
       <div className="px-4">
         <Card>
           <div className="grid grid-cols-2 gap-3">

@@ -7,6 +7,7 @@ import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { applyMissedPenalties, listBadges, pendingReviews, recentPenalties, taskBoard, todayRewards } from "@/server/services/tasks";
 import { rewardBalance } from "@/server/services/rewards";
+import { isDoneToday, isPendingToday } from "@/server/domain/task-status";
 import { listAccounts } from "@/server/services/ledger";
 import { RewardBox } from "@/components/RewardBox";
 import { ArtIcon } from "@/components/ArtIcon";
@@ -31,10 +32,11 @@ export default async function TasksPage() {
     { key: "SHARED", title: "共同任務" },
   ] as const;
   // 還沒完成的排前面：打開任務頁第一眼就是「接下來要做什麼」
+  // 兩個清單互斥：完成的只在佈告欄，待做的只在「今天」。規則在 domain/task-status.ts
   const doable = (c: (typeof board.today)[number]) => c.canCheckIn || !c.today || c.today.status === "REJECTED";
-  const todayRows = [...board.today].sort((a, b) => Number(doable(b)) - Number(doable(a)));
+  const todayRows = board.today.filter(isPendingToday).sort((a, b) => Number(doable(b)) - Number(doable(a)));
   // 佈告欄＝成果牆：今天已完成（或待確認）的那些
-  const todayDone = board.today.filter((c) => (c.weekly ? c.doneThisWeek : c.today?.status === "APPROVED" || c.today?.status === "PENDING"));
+  const todayDone = board.today.filter(isDoneToday);
   const streaks = board.cards.filter((c) => c.task.isActive && c.stats.current > 0).sort((a, b) => b.stats.current - a.stats.current).slice(0, 3);
   const pct = (r: { rate: number | null }) => (r.rate === null ? "—" : `${Math.round(r.rate * 100)}%`);
   // 全部都是 0 的區塊不佔位置：第一次用的人一打開就看得到自己的任務，而不是六個 $0

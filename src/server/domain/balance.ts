@@ -9,12 +9,28 @@ export interface LedgerTx {
   splits: Array<{ userId: string; amount: number }>;
 }
 
-/** 帳戶餘額：−Σpayment。 */
+/**
+ * 帳戶餘額：−Σpayment。
+ *
+ * 這是全專案唯一一份「帳戶餘額怎麼算」的定義。service 層只負責把 payment 撈出來，
+ * 不要自己再寫一次 `-(sum)`，不然哪天兩邊不一致就會出現對不起來的數字。
+ */
 export function accountBalances(txs: LedgerTx[]): Map<string, number> {
   const m = new Map<string, number>();
   for (const tx of txs) for (const p of tx.payments) m.set(p.accountId, (m.get(p.accountId) ?? 0) - p.amount);
   return m;
 }
+
+/** 單一帳戶的餘額：把已經在資料庫聚合好的 Σpayment 換算成餘額。跟 accountBalances 同一個定義。 */
+export const balanceFromPayments = (sumOfPayments: number) => -sumOfPayments;
+
+/**
+ * 帳戶可自由使用金額 = 帳戶餘額 − 已指定給基金的金額。
+ *
+ * 這是全專案唯一一份定義：基金投入、轉帳、記帳、結算全部用它。
+ * 只要有一個地方自己重寫一次，基金的「帳上有、實際沒有」就會從那裡漏出去。
+ */
+export const freeAmount = (balance: number, earmarked: number) => balance - earmarked;
 
 /** 這筆交易是否影響個人之間的欠款。 */
 export function affectsDebt(tx: LedgerTx): boolean {

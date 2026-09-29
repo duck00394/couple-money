@@ -9,6 +9,7 @@ import { normalizeTags } from "@/server/domain/search";
 import { DomainError } from "@/server/domain/errors";
 import { Button, cx, DateInput, ErrorText, Field, Input, inputClass } from "./ui";
 import { ArtIcon } from "./ArtIcon";
+import { showToast } from "./Toast";
 
 type Member = { userId: string; nickname: string };
 type AccountOpt = { id: string; name: string; type: string; ownerId: string | null; icon: string };
@@ -68,10 +69,12 @@ export function TransactionForm(props: {
   defaultFundId?: string | null;
   defaultAccountId?: string | null;
   defaultPreorderId?: string | null;
+  /** 從別的頁面帶著特殊返回路徑進來時設 true：只給單一送出鈕，不給「再記一筆」 */
+  stayDisabled?: boolean;
 }) {
   const { me, partner, accounts, categories, today, initial } = props;
   const members = partner ? [me, partner] : [me];
-  const [clientRequestId] = useState(() => crypto.randomUUID());
+  const [clientRequestId, setClientRequestId] = useState(() => crypto.randomUUID());
   const [type, setType] = useState<"EXPENSE" | "INCOME">(initial?.type ?? "EXPENSE");
   // 金額由小計算機驅動：calc.input 就是輸入框裡的字，兩邊永遠一致
   const [calc, setCalc] = useState<CalcState>(() =>
@@ -144,7 +147,24 @@ export function TransactionForm(props: {
     }
   }, [amount, rule]);
 
-  const [state, action, pending] = useActionState(saveTransactionAction, undefined);
+  // 「再記一筆」成功之後不換頁，所以要自己把表單清乾淨、並換一個 clientRequestId
+  // —— 沒換的話第二筆會撞到防重複送出的 idempotency key，變成靜靜地什麼都沒記。
+  const [state, action, pending] = useActionState(async (prev: Awaited<ReturnType<typeof saveTransactionAction>>, fd: FormData) => {
+    const r = await saveTransactionAction(prev, fd);
+    if (r?.ok) {
+      showToast(r.ok);
+      setClientRequestId(crypto.randomUUID());
+      setCalc(initialCalc);
+      setTitle("");
+      setNote("");
+      setTagText("");
+      setPreorderId("");
+      setFundId("");
+      setFundAccountId("");
+      // 帳戶、日期、分類、分帳方式刻意留著：連續記帳時通常是同一組
+    }
+    return r;
+  }, undefined);
   const [delState, delAction, deleting] = useActionState(deleteTransactionAction, undefined);
 
   const payload = JSON.stringify({
@@ -189,6 +209,9 @@ export function TransactionForm(props: {
   const advancedOpen = !!preorderId || !!fundId;
 
   const canSubmit = !!amount && !!accountId && !preview.error && !pending && !pendingCalc && (!fundId || !!fundAccountId);
+  // 只有「從記帳頁單純記一筆」才給兩顆按鈕。
+  // 編輯、或從基金／預購頁帶著特殊 returnTo 進來的都不給 —— 那些流程記完就該回原本在看的東西。
+  const canStay = !initial && !props.defaultFundId && !props.defaultPreorderId && !props.stayDisabled;
 
   return (
     <div className="pb-submit-bar px-4">
@@ -640,9 +663,23 @@ export function TransactionForm(props: {
         <ErrorText>{state?.error}</ErrorText>
 
         <div className="sticky-submit-bar">
-          <Button type="submit" className="w-full" disabled={!canSubmit}>
-            {pending ? "儲存中…" : pendingCalc ? "先按 ＝ 算出金額" : initial ? "儲存修改" : "記下來"}
-          </Button>
+          {/* 一天常常連記兩三筆，所以送出分成「再記一筆」（留在這頁）與「完成」（回原本的地方）。
+              編輯，以及從基金／預購／退款那些特殊入口進來的（有 returnTo），只留單一按鈕，
+              免得記完之後卡在表單上、回不到原本在看的東西。 */}
+          {canStay ? (
+            <div className="grid grid-cols-[1fr_1.2fr] gap-2">
+              <Button type="submit" name="stay" value="1" variant="secondary" disabled={!canSubmit} data-testid="save-and-more">
+                {pending ? "儲存中…" : "再記一筆"}
+              </Button>
+              <Button type="submit" className="w-full" disabled={!canSubmit} data-testid="save-and-done">
+                {pending ? "儲存中…" : pendingCalc ? "先按 ＝ 算出金額" : "記下來"}
+              </Button>
+            </div>
+          ) : (
+            <Button type="submit" className="w-full" disabled={!canSubmit}>
+              {pending ? "儲存中…" : pendingCalc ? "先按 ＝ 算出金額" : initial ? "儲存修改" : "記下來"}
+            </Button>
+          )}
         </div>
       </form>
 

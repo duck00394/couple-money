@@ -40,10 +40,12 @@ type SplitMode = "OWNER" | "EQUAL" | "RATIO" | "AMOUNT";
 const blankItem = (): PreorderItemValue => ({ name: "", unitAmount: "", qty: "1", ownerId: "JOINT" });
 
 /** 建立／編輯預購。金額只填「應付的」，已付多少由付款紀錄自己算。 */
-export function PreorderForm({ values, members, categories }: {
+export function PreorderForm({ values, members, categories, alreadyPaid = 0 }: {
   values: PreorderFormValues;
   members: Array<{ userId: string; nickname: string }>;
   categories: Array<{ id: string; name: string }>;
+  /** 這張單目前已經付了多少（編輯時才有）。用來提醒「改小之後會變成超付」，不阻擋。 */
+  alreadyPaid?: number;
 }) {
   const [state, action, pending] = useActionState(savePreorderAction, undefined);
   const [item, setItem] = useState(values.itemAmount);
@@ -163,6 +165,13 @@ export function PreorderForm({ values, members, categories }: {
         <Field label="運費（選填）"><Input name="shipping" inputMode="decimal" value={ship} onChange={(e) => setShip(e.target.value)} placeholder="150" /></Field>
       </div>
       {total > 0 && <p className="-mt-1 text-xs text-stone-500">應付總額 <span className="tnum font-semibold text-stone-700">{formatMoney(total)}</span></p>}
+      {/* 改小到低於已付金額是合理的（降價、少買一件），所以不阻擋，但一定要講清楚會變成超付 */}
+      {total > 0 && alreadyPaid > total && (
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800" role="alert" data-testid="preorder-overpaid-warning">
+          修改後已付款金額（{formatMoney(alreadyPaid)}）會高於預購總額 {formatMoney(total)}，
+          多出 {formatMoney(alreadyPaid - total)}。若實際會收到退款，請另外到付款紀錄建立退款紀錄。
+        </p>
+      )}
 
       {/* ── 明細品項：一張單裡有什麼。有品項時商品金額改成它們的加總 ── */}
       <div className="rounded-2xl bg-stone-100/70 p-3.5" data-testid="preorder-items">

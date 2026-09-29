@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DomainError } from "../../src/server/domain/errors";
 import { buildFlowLines, buildTransferLines } from "../../src/server/domain/ledger";
-import { assertEarmarkBacked, assertTransferable, freeAmount } from "../../src/server/domain/transfer";
+import { assertEarmarkBacked, assertTransferable, freeOf } from "../../src/server/domain/transfer";
 import { assertRefundAmount, refundSplitRule, refundableAmount } from "../../src/server/domain/refund";
 import { fromDateTime, hasTimeOfDay, toDateKey, toTimeKey } from "../../src/lib/dates";
 import { sum } from "../../src/lib/money";
@@ -22,8 +22,8 @@ const code = (fn: () => void) => {
 
 describe("Phase 3-2 轉帳規則", () => {
   it("可自由使用金額 = 餘額 − 已指定給基金", () => {
-    assert.equal(freeAmount({ balance: $(30000), earmarked: $(20000) }), $(10000));
-    assert.equal(freeAmount({ balance: $(500), earmarked: 0 }), $(500));
+    assert.equal(freeOf({ balance: $(30000), earmarked: $(20000) }), $(10000));
+    assert.equal(freeOf({ balance: $(500), earmarked: 0 }), $(500));
   });
 
   it("基金指定的錢不能被轉走（餘額 $30,000、指定 $20,000 → 只能轉 $10,000）", () => {

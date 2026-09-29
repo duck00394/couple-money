@@ -29,8 +29,25 @@ const debtText = async (page: Page) => {
   return (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
 };
 
+/**
+ * 讓自己的帳戶多一筆收入。
+ * 一定要由帳戶主人自己記，不然分帳會落在記帳的人身上、反而製造出新的欠款。
+ */
+async function topUpOwn(page: Page, amount: string) {
+  await go(page, "/transactions/new");
+  await page.getByRole("button", { name: "收入", exact: true }).click();
+  await page.getByLabel("金額").fill(amount);
+  await page.getByRole("button", { name: /薪水/ }).click();
+  await page.getByLabel("名稱（選填）").fill("補錢");
+  await page.getByRole("button", { name: "記下來" }).click();
+  await page.waitForURL("**/");
+}
+
 /** 把欠款清成 0：我欠對方就用逐筆選擇器全選還清，對方欠我就用既有表單記一筆。 */
-async function clearDebt(a: Page) {
+async function clearDebt(a: Page, b: Page) {
+  // 阿本的現金有一部分指定給基金，直接結算會被基金的不變式擋下來（這是對的），
+  // 所以先讓阿本自己入帳一筆，可自由使用才夠還。
+  await topUpOwn(b, "30000");
   for (let i = 0; i < 4; i++) {
     const text = await debtText(a);
     if (text.includes("互不相欠")) return;
@@ -116,7 +133,7 @@ export async function v6HomeDebtTags(a: Page, b: Page) {
   step("「全部紀錄」進既有列表頁，點單筆進既有明細／編輯流程");
 
   // ───────────────────────── 逐筆欠款 ─────────────────────────
-  await clearDebt(a);
+  await clearDebt(a, b);
   // 阿本先入帳一筆收入，現金才夠付下面三筆（基金已經指定掉一部分餘額）
   await go(b, "/transactions/new");
   await b.getByRole("button", { name: "收入", exact: true }).click();

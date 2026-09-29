@@ -10,6 +10,7 @@ import { prisma, lockBook, type Tx } from "../db";
 import { assert, DomainError } from "../domain/errors";
 import { buildTransferLines } from "../domain/ledger";
 import { progressOf, REAL_FUND_TX_TYPES, signedFundAmount, summarizeFund, summarizePending, type FundEntry, type PendingSummary } from "../domain/fund";
+import { balanceFromPayments, freeAmount } from "../domain/balance";
 import { MAX_AMOUNT, formatMoney } from "@/lib/money";
 import { fromDateKey, keyToDbDate } from "@/lib/dates";
 import { assertCanWrite, type BookContext } from "./books";
@@ -71,19 +72,20 @@ async function fundAllocations(client: Client, bookId: string, fundId: string, e
   return new Map(rows.map((r) => [r.accountId!, r._sum.amount ?? 0]));
 }
 
+/** 單一帳戶的餘額。只負責把 payment 撈出來加總，「怎麼變成餘額」的定義在 domain。 */
 async function accountBalance(client: Client, accountId: string) {
   const r = await client.transactionPayment.aggregate({
     where: { accountId, transaction: { deletedAt: null, status: "POSTED" } },
     _sum: { amount: true },
   });
-  return -(r._sum.amount ?? 0);
+  return balanceFromPayments(r._sum.amount ?? 0);
 }
 
-/** 帳戶可自由使用金額 = 帳戶餘額 − 已指定給基金。 */
+/** 帳戶可自由使用金額。公式用 domain 的 freeAmount()，這裡只負責取資料。 */
 export async function accountFreeAmount(client: Client, bookId: string, accountId: string) {
   const [balance, earmarked] = await Promise.all([accountBalance(client, accountId), earmarkedByAccount(client, bookId)]);
   const e = earmarked.get(accountId) ?? 0;
-  return { balance, earmarked: e, free: balance - e };
+  return { balance, earmarked: e, free: freeAmount(balance, e) };
 }
 
 /** 尚未入金的獎金與懲罰（依基金）。 */

@@ -114,6 +114,18 @@ export interface SearchTotals {
 }
 
 /** 結果統計：只有支出／退款／收入算收支；轉帳、結算、期初餘額另外列出，不算收支。 */
+/**
+ * 「誰負擔」只看這幾種交易：消費與退款。
+ *
+ * 收入的分帳不是負擔、轉帳與結算只是搬錢、期初餘額與調整不算收支。
+ * 首頁、統計、搜尋都用這一份定義，不要各自再寫一次。
+ */
+export const BURDEN_TYPES: readonly string[] = ["EXPENSE", "REFUND"];
+
+/**
+ * 交易類型的收支方向，全專案只有這一份定義：
+ *   EXPENSE 加、REFUND 減、INCOME 是收入、TRANSFER 只是搬錢（不算收支）。
+ */
 export function totalsFromGroups(groups: Array<{ type: string; count: number; amount: number; sourceType?: string | null }>): SearchTotals {
   const t: SearchTotals = { count: 0, expense: 0, refund: 0, income: 0, netExpense: 0, transferCount: 0, transferAmount: 0 };
   for (const g of groups) {

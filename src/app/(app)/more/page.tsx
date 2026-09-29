@@ -28,7 +28,6 @@ const MENU: Array<{ title: string; items: Array<{ href: string; icon: string; la
       { href: "/transactions", icon: "transaction", label: "記帳明細與 CSV", sub: "搜尋、篩選、批次整理、匯出備份" },
       { href: "/activity", icon: "bell", label: "最近動態", sub: "活動紀錄：誰改了什麼、另一半做了什麼" },
       { href: "/settle", icon: "settle", label: "結算", sub: "把欠款一次結清" },
-      { href: "/goals", icon: "target", label: "共同目標", sub: "要買什麼、幾月幾號之前" },
     ],
   },
 ];

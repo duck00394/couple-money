@@ -109,8 +109,8 @@ export function summarizePending(rewards: PendingItem[], penalties: PendingItem[
   return s;
 }
 
-/** 帳戶可自由使用金額 = 帳戶餘額 − 已指定給基金。 */
-export const freeAmount = (accountBalance: number, earmarked: number) => accountBalance - earmarked;
+/** 帳戶可自由使用金額。公式只有一份，在 domain/balance.ts。 */
+export { freeAmount } from "./balance";
 
 
 /** 進度（0～1，超過截斷在 1）；目標金額未設定回傳 null。 */

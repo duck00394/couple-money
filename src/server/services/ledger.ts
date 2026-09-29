@@ -8,7 +8,7 @@ import { formatMoney, MAX_AMOUNT } from "@/lib/money";
 import { fromDateKey, keyToDbDate, monthRange } from "@/lib/dates";
 import { assertCanWrite, type BookContext } from "./books";
 import { syncFundExpense } from "./funds";
-import { normalizeTags } from "../domain/search";
+import { BURDEN_TYPES, normalizeTags, totalsFromGroups } from "../domain/search";
 import { TX_INCLUDE } from "./search";
 import { assertAccountsEarmarkBacked, assertTransferCancelable, refundedAmount } from "./transfers";
 import { accountFreeAmount } from "./funds";
@@ -538,17 +538,14 @@ export async function monthSummary(ctx: BookContext, now = new Date()) {
     where: { bookId: ctx.book.id, deletedAt: null, status: "POSTED", type: { in: ["EXPENSE", "INCOME", "REFUND"] }, occurredAt: { gte: start, lt: end } },
     select: { type: true, amount: true, splits: { select: { userId: true, amount: true } } },
   });
-  let expense = 0;
-  let income = 0;
-  let myShare = 0;
-  for (const r of rows) {
-    if (r.type === "INCOME") income += r.amount;
-    else {
-      expense += r.type === "EXPENSE" ? r.amount : -r.amount;
-      myShare += r.splits.filter((s) => s.userId === ctx.me.userId).reduce((a, s) => a + s.amount, 0);
-    }
-  }
-  return { label, expense, income, myShare };
+  // 收支方向只有一份定義（domain/search.ts），首頁不自己再寫一次：
+  // 淨支出 = 消費 − 退款，收入 = INCOME。
+  const totals = totalsFromGroups(rows.map((r) => ({ type: r.type, count: 1, amount: r.amount })));
+  // 我負擔：只看消費與退款的分帳（退款的分帳本來就是負的，加總自然會沖銷）
+  const myShare = rows
+    .filter((r) => BURDEN_TYPES.includes(r.type))
+    .reduce((a, r) => a + r.splits.filter((s) => s.userId === ctx.me.userId).reduce((b, s) => b + s.amount, 0), 0);
+  return { label, expense: totals.netExpense, income: totals.income, myShare };
 }
 
 // ───────────────────────── 結算 ─────────────────────────
@@ -625,6 +622,10 @@ export async function settle(
           createdById: ctx.me.userId,
         },
       });
+      // 結算是「把錢從付款人的帳戶搬走」，所以跟記帳、轉帳一樣要守同一條不變式：
+      // 帳戶餘額不能少於已指定給基金的金額，否則基金會出現「帳上有、實際沒有」的錢。
+      // 放在建立之後才檢查，用的是寫進去之後的真實餘額；不通過就整筆 rollback。
+      await assertAccountsEarmarkBacked(tx, ctx, [fromAcc.id], "settle");
       await audit(tx, ctx, "CREATE", "Settlement", s.id, null, { ...input });
       return s;
     });

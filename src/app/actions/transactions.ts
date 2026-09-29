@@ -52,6 +52,9 @@ export async function saveTransactionAction(_: ActionState, form: FormData): Pro
   });
   if (state?.error) return state;
   revalidatePath("/", "layout");
+  // 「再記一筆」：一天常常連記好幾筆，這時候不換頁，留在表單上繼續記。
+  // 只有新增才適用；編輯完就該回去看結果。
+  if (str(form, "stay") === "1" && !str(form, "id")) return { ok: "已記下來" };
   // 只接受站內路徑，避免開放式重新導向
   const returnTo = str(form, "returnTo");
   redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/transactions");

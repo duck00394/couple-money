@@ -95,66 +95,46 @@ export default async function DashboardPage() {
         </div>
       </header>
 
-      {/* ── 1. 可以花的錢：帳戶裡真的能動的錢。
-             刻意不叫「可自由使用」——那個詞在帳戶頁與基金頁已經有固定意思
-             （帳戶餘額 − 已指定給基金），這裡還多扣了預購待結，數字不一樣。 ── */}
-      <SectionTitle right={<Link href="/accounts" className="text-sm text-brand-600">看帳戶</Link>}>可以花的錢</SectionTitle>
-      <Card className="px-5 py-4" data-testid="available-card">
-        <p className="text-xs text-stone-500">扣掉基金與預購待結</p>
-        <p className={`amount-lg mt-1 text-[2rem] ${available.free < 0 ? "text-red-600" : "text-stone-800"}`} data-testid="available-free">
-          {formatMoney(available.free)}
-        </p>
-        <div className="mt-2.5 space-y-0.5 border-t border-line pt-2.5 text-xs text-stone-500">
-          <div className="flex justify-between"><span>帳戶可用</span><span className="tnum">{formatMoney(available.accounts)}</span></div>
-          {available.earmarked > 0 && (
-            <div className="flex justify-between"><span>− 已指定給基金</span><span className="tnum">{formatMoney(available.earmarked)}</span></div>
-          )}
-          {available.preorder > 0 && (
-            <div className="flex justify-between"><span>− 預購待結</span><span className="tnum">{formatMoney(available.preorder)}</span></div>
-          )}
-        </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-stone-400">不含信用卡欠款，也沒有扣預算（預算只是提醒，不是已經花掉的錢）。</p>
+      {/* ── 1. 今天要做什麼：每天打開 App 的第一件事，直接在這裡打卡 ── */}
+      <SectionTitle
+        right={<Link href="/tasks" className="text-sm text-brand-600">全部任務</Link>}
+      >
+        今日任務{myToday.length > 0 && `（還剩 ${undone.length}/${myToday.length}）`}
+      </SectionTitle>
+      <Card className="divide-y divide-line p-0" data-testid="today-tasks">
+        {myToday.length === 0 ? (
+          <Empty icon="sprout" action={<Link href="/tasks/new" className="text-sm font-semibold text-brand-600">建立任務 →</Link>}>
+            今天沒有排定的任務
+          </Empty>
+        ) : (
+          sorted.slice(0, 6).map((c) => <TaskRow key={`${c.task.id}:${c.subjectKey}`} card={c} ctx={ctx} />)
+        )}
       </Card>
 
-      <div className="mt-3.5">
-        <DebtCard ctx={ctx} debt={balances.debts[0]} />
-      </div>
-
-      {/* ── 2. 提醒：沒有就完全不佔位置 ── */}
-      {(dueRecurring.length > 0 || budgets || preorders.count > 0) && (
-        <Card quiet className="mt-3.5 divide-y divide-line p-0">
-          {preorders.count > 0 && (
-            <Link href="/preorders" className="flex items-center gap-3 px-4 py-3.5 text-sm active:bg-stone-50" data-testid="preorder-hint">
-              <ArtTile name="package" size={36} />
-              <span className="min-w-0 flex-1">
-                <span className="block">{preorders.count} 筆預購待結款</span>
-                <span className="block text-[11px] text-stone-400">共 {formatMoney(preorders.remaining)}・還沒付，不算這個月的支出</span>
-              </span>
-              <span className="text-stone-300">›</span>
-            </Link>
-          )}
-          {dueRecurring.length > 0 && (
-            <Link href="/recurring" className="flex items-center gap-3 px-4 py-3.5 text-sm active:bg-stone-50" data-testid="recurring-hint">
-              <ArtTile name="calendar-clock" size={36} />
-              <span className="flex-1">有 {dueRecurring.length} 筆固定支出待處理</span>
-              <span className="text-stone-300">›</span>
-            </Link>
-          )}
-          {budgets && (
-            <Link href="/budgets" className="flex items-center gap-3 px-4 py-3.5 text-sm active:bg-stone-50" data-testid="budget-hint">
-              <ArtTile name="target" size={36} />
-              <span className="min-w-0 flex-1">本月預算 {budgets.count} 個</span>
-              {budgets.over > 0 ? (
-                <Badge tone="danger">{budgets.over} 個超支</Badge>
-              ) : budgets.near > 0 ? (
-                <Badge tone="warn">{budgets.near} 個快超過</Badge>
-              ) : (
-                <Badge tone="income">都還好</Badge>
-              )}
-              <span className="text-stone-300">›</span>
-            </Link>
-          )}
-        </Card>
+      {/* ── 2. 今日獎勵：跟著任務走。全部是 0 的時候不佔位置 ── */}
+      {(todayReward > 0 || myReward.balance > 0 || rewards.total > 0) && (
+        <>
+          <SectionTitle right={<Link href="/tasks" className="text-sm text-brand-600">去提領</Link>}>今日獎勵</SectionTitle>
+          <Card className="px-5 py-4" data-testid="today-reward-card">
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-stone-500">今天賺到</p>
+                <p className="amount mt-0.5 text-[1.9rem] text-brand-700" data-testid="today-rewards">
+                  +{formatMoney(todayReward)}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-xs text-stone-500">我的獎勵餘額</p>
+                <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="reward-balance">{formatMoney(myReward.balance)}</p>
+              </div>
+            </div>
+            {ctx.partner && (
+              <p className="mt-2 border-t border-line pt-2 text-xs text-stone-500">
+                兩個人今天合計 +{formatMoney(rewards.total)}
+              </p>
+            )}
+          </Card>
+        </>
       )}
 
       {/* ── 3. 最近紀錄：今天記的全部看得到，今天以前只留最近幾筆。
@@ -201,47 +181,68 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* ── 4. 今日任務：直接在這裡完成，不用進任務頁 ── */}
-      <SectionTitle
-        right={<Link href="/tasks" className="text-sm text-brand-600">全部任務</Link>}
-      >
-        今日任務{myToday.length > 0 && `（還剩 ${undone.length}/${myToday.length}）`}
-      </SectionTitle>
-      <Card className="divide-y divide-line p-0" data-testid="today-tasks">
-        {myToday.length === 0 ? (
-          <Empty icon="sprout" action={<Link href="/tasks/new" className="text-sm font-semibold text-brand-600">建立任務 →</Link>}>
-            今天沒有排定的任務
-          </Empty>
-        ) : (
-          sorted.slice(0, 6).map((c) => <TaskRow key={`${c.task.id}:${c.subjectKey}`} card={c} ctx={ctx} />)
-        )}
-      </Card>
+      {/* ── 4a. 需要處理：欠款 ── */}
+      <div className="mt-3.5">
+        <DebtCard ctx={ctx} debt={balances.debts[0]} />
+      </div>
 
-      {/* ── 5. 今日獎勵：全部是 0 的時候不佔位置（跟提醒卡同一條規則） ── */}
-      {(todayReward > 0 || myReward.balance > 0 || rewards.total > 0) && (
-        <>
-          <SectionTitle right={<Link href="/tasks" className="text-sm text-brand-600">去提領</Link>}>今日獎勵</SectionTitle>
-          <Card className="px-5 py-4" data-testid="today-reward-card">
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-xs text-stone-500">今天賺到</p>
-                <p className="amount mt-0.5 text-[1.9rem] text-brand-700" data-testid="today-rewards">
-                  +{formatMoney(todayReward)}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-xs text-stone-500">我的獎勵餘額</p>
-                <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="reward-balance">{formatMoney(myReward.balance)}</p>
-              </div>
-            </div>
-            {ctx.partner && (
-              <p className="mt-2 border-t border-line pt-2 text-xs text-stone-500">
-                兩個人今天合計 +{formatMoney(rewards.total)}
-              </p>
-            )}
-          </Card>
-        </>
+      {/* ── 4b. 需要處理的提醒：沒有就完全不佔位置 ── */}
+      {(dueRecurring.length > 0 || budgets || preorders.count > 0) && (
+        <Card quiet className="mt-3.5 divide-y divide-line p-0">
+          {preorders.count > 0 && (
+            <Link href="/preorders" className="flex items-center gap-3 px-4 py-3.5 text-sm active:bg-stone-50" data-testid="preorder-hint">
+              <ArtTile name="package" size={36} />
+              <span className="min-w-0 flex-1">
+                <span className="block">{preorders.count} 筆預購待結款</span>
+                <span className="block text-[11px] text-stone-400">共 {formatMoney(preorders.remaining)}・還沒付，不算這個月的支出</span>
+              </span>
+              <span className="text-stone-300">›</span>
+            </Link>
+          )}
+          {dueRecurring.length > 0 && (
+            <Link href="/recurring" className="flex items-center gap-3 px-4 py-3.5 text-sm active:bg-stone-50" data-testid="recurring-hint">
+              <ArtTile name="calendar-clock" size={36} />
+              <span className="flex-1">有 {dueRecurring.length} 筆固定支出待處理</span>
+              <span className="text-stone-300">›</span>
+            </Link>
+          )}
+          {budgets && (
+            <Link href="/budgets" className="flex items-center gap-3 px-4 py-3.5 text-sm active:bg-stone-50" data-testid="budget-hint">
+              <ArtTile name="target" size={36} />
+              <span className="min-w-0 flex-1">本月預算 {budgets.count} 個</span>
+              {budgets.over > 0 ? (
+                <Badge tone="danger">{budgets.over} 個超支</Badge>
+              ) : budgets.near > 0 ? (
+                <Badge tone="warn">{budgets.near} 個快超過</Badge>
+              ) : (
+                <Badge tone="income">都還好</Badge>
+              )}
+              <span className="text-stone-300">›</span>
+            </Link>
+          )}
+        </Card>
       )}
+
+      {/* ── 5. 可以花的錢：帳戶裡真的能動的錢。
+             刻意不叫「可自由使用」——那個詞在帳戶頁與基金頁已經有固定意思
+             （帳戶餘額 − 已指定給基金），這裡還多扣了預購待結，數字不一樣。 ── */}
+      <SectionTitle right={<Link href="/accounts" className="text-sm text-brand-600">看帳戶</Link>}>可以花的錢</SectionTitle>
+      <Card className="px-5 py-4" data-testid="available-card">
+        <p className="text-xs text-stone-500">扣掉基金與預購待結</p>
+        <p className={`amount-lg mt-1 text-[2rem] ${available.free < 0 ? "text-red-600" : "text-stone-800"}`} data-testid="available-free">
+          {formatMoney(available.free)}
+        </p>
+        <div className="mt-2.5 space-y-0.5 border-t border-line pt-2.5 text-xs text-stone-500">
+          <div className="flex justify-between"><span>帳戶可用</span><span className="tnum">{formatMoney(available.accounts)}</span></div>
+          {available.earmarked > 0 && (
+            <div className="flex justify-between"><span>− 已指定給基金</span><span className="tnum">{formatMoney(available.earmarked)}</span></div>
+          )}
+          {available.preorder > 0 && (
+            <div className="flex justify-between"><span>− 預購待結</span><span className="tnum">{formatMoney(available.preorder)}</span></div>
+          )}
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-stone-400">不含信用卡欠款，也沒有扣預算（預算只是提醒，不是已經花掉的錢）。</p>
+      </Card>
 
       {/* ── 6. 基金進度（摘要與入口，完整清單在基金頁） ── */}
       <SectionTitle right={<Link href="/funds" className="text-sm text-brand-600">全部基金</Link>}>

@@ -98,9 +98,17 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
           {p.note && <p className="mt-3 border-t border-line pt-3 text-sm text-stone-600">{p.note}</p>}
         </Card>
 
+        {/* 只有「進行中」才給記錄付款。已結清再付會超付、已取消再付是憑空多一筆支出，
+            service 層已經擋掉了，這裡不再提供入口，免得按了才被拒絕。 */}
         {p.state === "CANCELLED" ? (
           <Card className="mt-3 text-sm text-stone-600">
-            這張預購已經取消。已經付出去的錢仍然是已付 —— 如果實際有收到退款，請到下面的付款紀錄點進去走退款。
+            這張預購已經取消，不能再記錄付款。已經付出去的錢仍然是已付 —— 如果實際有收到退款，請到下面的付款紀錄點進去走退款。
+          </Card>
+        ) : p.state === "SETTLED" ? (
+          <Card className="mt-3 text-sm text-stone-600">
+            這張預購已經付清（應付 {formatMoney(p.money.total)}、已付 {formatMoney(p.money.paid)}），不用再記錄付款。
+            {p.money.overpaid > 0 && `目前多付了 ${formatMoney(p.money.overpaid)}，如果實際會收到退款，請到下面的付款紀錄走退款。`}
+            {p.money.overpaid === 0 && "如果之後總額有變（加購、改價），先在下面改預購金額，就會重新開放付款。"}
           </Card>
         ) : ctx.canWrite && payable.length > 0 ? (
           <>
@@ -164,6 +172,7 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                   }}
                   members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname }))}
                   categories={expenseCategories}
+                  alreadyPaid={p.money.paid}
                 />
               </Card>
             </Collapsible>

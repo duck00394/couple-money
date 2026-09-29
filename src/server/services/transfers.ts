@@ -8,7 +8,7 @@ import { Prisma } from "@prisma/client";
 import { prisma, lockBook, type Tx } from "../db";
 import { assert, DomainError } from "../domain/errors";
 import { buildFlowLines, buildTransferLines } from "../domain/ledger";
-import { assertEarmarkBacked, assertTransferable, type TransferAccount } from "../domain/transfer";
+import { assertEarmarkBacked, assertTransferable, type EarmarkAction, type TransferAccount } from "../domain/transfer";
 import { assertRefundAmount, refundSplitRule } from "../domain/refund";
 import { fromDateTime } from "@/lib/dates";
 import { assertCanWrite, type BookContext } from "./books";
@@ -87,7 +87,7 @@ export async function createTransfer(ctx: BookContext, input: TransferInput) {
 }
 
 /** 動到帳戶餘額之後，檢查每個帳戶「已指定給基金」的錢都還有實際餘額對應得到。 */
-export async function assertAccountsEarmarkBacked(tx: Tx, ctx: BookContext, accountIds: string[], action: "cancel" | "spend" = "cancel") {
+export async function assertAccountsEarmarkBacked(tx: Tx, ctx: BookContext, accountIds: string[], action: EarmarkAction = "cancel") {
   const ids = [...new Set(accountIds)].filter(Boolean);
   if (ids.length === 0) return;
   const accounts = await Promise.all(ids.map((id) => loadTransferAccount(tx, ctx, id, "帳戶")));

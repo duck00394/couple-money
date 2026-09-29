@@ -34,6 +34,7 @@ export default async function NewTransactionPage({ searchParams }: PageProps<"/t
         returnTo={preorderId ? `/preorders/${preorderId}` : fundId ? `/funds/${fundId}` : from ?? "/"}
         defaultFundId={fundId}
         defaultPreorderId={preorderId}
+        stayDisabled={!!from}
         defaultAccountId={storage?.accountId && options.accounts.some((a) => a.id === storage.accountId) ? storage.accountId : null}
       />
     </>
