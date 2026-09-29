@@ -8,9 +8,9 @@ import { go, pageText, shot, step } from "./lib";
 const money = (s: string) => Number(s.replace(/[^\d.-]/g, ""));
 
 export async function phase3Stats(a: Page, b: Page) {
-  // 1. 從記帳頁的捷徑進入統計
+  // 1. 從底部導覽進入統計（明細頁的捷徑只留在別處沒有入口的那幾個）
   await go(a, "/transactions");
-  await a.getByRole("main").getByRole("link", { name: "統計" }).first().click();
+  await a.locator("nav").last().getByRole("link", { name: "統計" }).click();
   await a.waitForURL(/\/stats/);
   await expect(a.getByTestId("stats-month")).toBeVisible();
   const netExpense = money(await a.getByTestId("stats-net-expense").innerText());

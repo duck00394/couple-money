@@ -72,15 +72,13 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/tra
             <Link href="/transactions" className="px-1 text-xs text-stone-500 underline">清除全部</Link>
           </div>
         ) : (
-          /* 捷徑：4 欄 icon 磚，佔的高度只有原本的一半，記帳列表才會更早出現 */
+          /* 捷徑只留「在別的地方沒有入口」的那幾個：
+             統計與帳戶在底部導覽／更多頁已經有了，重複放只會把明細推到第二屏。 */
           <div className="mt-3 grid grid-cols-4 gap-2 text-center">
             {[
               { href: "/transactions/transfer", icon: "transfer", label: "轉帳" },
               { href: "/transactions/refund", icon: "refund", label: "退款" },
               { href: "/recurring", icon: "calendar-clock", label: "固定支出", badge: duePending.length },
-              { href: "/settle", icon: "settle", label: "結算" },
-              { href: "/stats", icon: "stats", label: "統計" },
-              { href: "/accounts", icon: "credit-card", label: "帳戶" },
             ].map((s) => (
               <Link
                 key={s.href}

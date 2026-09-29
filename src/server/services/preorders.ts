@@ -46,6 +46,8 @@ export interface PreorderInput {
   splitRule?: SplitRule | null;
   /** 明細品項。undefined = 不變動、[] = 清空 */
   items?: PreorderItemInput[];
+  /** 付款時預設帶的分類（統計才不會整包落在「未分類」）。null = 不帶 */
+  categoryId?: string | null;
 }
 
 /** 明細品項：檢查每一列，並回傳寫進資料庫的樣子。 */
@@ -89,6 +91,7 @@ function validate(ctx: BookContext, input: PreorderInput) {
   const splitRule = validateSplit(ctx, input.splitRule, itemAmount + input.shipping);
   return {
     data: {
+      categoryId: input.categoryId ?? null,
       name,
       seller: input.seller.trim() || null,
       emoji: toIconKey(input.emoji || "package"),
@@ -177,6 +180,8 @@ export interface PreorderView {
   shares: PreorderShare[];
   /** 誰付多少的規則；null = 依「誰的」（共同就平分） */
   splitRule: SplitRule | null;
+  /** 付款時預設帶的分類 */
+  categoryId: string | null;
   /** 明細品項（沒有就是空的，商品金額由上面那個欄位決定） */
   items: Array<{ id: string; name: string; unitAmount: number; qty: number; ownerId: string | null; total: number }>;
   state: PreorderState;
@@ -245,6 +250,7 @@ async function withMoney(
       note: r.note,
       money,
       splitRule: (r.splitRule as unknown as SplitRule | null) ?? null,
+      categoryId: r.categoryId,
       items: r.items.map((it) => ({
         id: it.id, name: it.name, unitAmount: it.unitAmount, qty: it.qty,
         ownerId: it.ownerId, total: it.unitAmount * it.qty,
@@ -309,5 +315,7 @@ export async function payPreorder(
   assertCanWrite(ctx);
   const po = await prisma.preorder.findFirst({ where: { id, bookId: ctx.book.id, deletedAt: null } });
   assert(po, "PREORDER_NOT_FOUND", "找不到這張預購");
-  return createTransaction(ctx, { ...input, type: "EXPENSE", preorderId: id });
+  // 沒指定分類時帶預購自己的預設，統計才不會整包落在「未分類」
+  const categoryId = input.categoryId ?? po.categoryId;
+  return createTransaction(ctx, { ...input, categoryId, type: "EXPENSE", preorderId: id });
 }

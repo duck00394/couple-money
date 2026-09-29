@@ -103,7 +103,9 @@ export async function phase3Search(a: Page, b: Page) {
   await go(a, "/transactions?kind=EXPENSE&tag=%E7%B4%84%E6%9C%83");
   await a.getByRole("link", { name: "清除全部" }).click();
   await a.waitForURL(/\/transactions$/);
-  await expect(a.getByRole("link", { name: "結算", exact: true })).toBeVisible();
+  // 捷徑只留在別的地方沒有入口的那幾個（結算已經在首頁欠款卡與更多頁）
+  await expect(a.getByRole("link", { name: "轉帳", exact: true })).toBeVisible();
+  await expect(a.getByRole("link", { name: "固定支出", exact: true })).toBeVisible();
   await go(b, "/transactions?q=%E8%A1%8C%E6%9D%8E%E7%AE%B1");
   await expect(rows(b)).toHaveCount(1);
   step("清除全部條件；阿本也搜得到共同帳本的行李箱");

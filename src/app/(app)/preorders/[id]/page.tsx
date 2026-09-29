@@ -21,6 +21,7 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
     .filter((a) => a.isActive && (a.ownerId === null || a.ownerId === ctx.me.userId))
     .map((a) => ({ id: a.id, label: a.ownerId === null ? `共同・${a.name}` : a.name }));
   const who = p.ownerId === null ? "共同" : p.ownerId === ctx.me.userId ? "我" : ctx.members.find((m) => m.userId === p.ownerId)?.nickname ?? "";
+  const expenseCategories = categories.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name }));
   const who2 = (id: string) => (id === ctx.me.userId ? "我" : ctx.members.find((m) => m.userId === id)?.nickname ?? "已離開的成員");
   const progress = p.money.total > 0 ? p.money.paid / p.money.total : 0;
 
@@ -110,7 +111,8 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                 remaining={p.money.remaining}
                 today={today}
                 accounts={payable}
-                categories={categories.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name }))}
+                categories={expenseCategories}
+                defaultCategoryId={p.categoryId}
                 members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname }))}
                 dues={p.shares.map((sh) => ({ userId: sh.userId, due: sh.due }))}
                 meId={ctx.me.userId}
@@ -158,8 +160,10 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                       ownerId: it.ownerId ?? "JOINT",
                     })),
                     splitRule: p.splitRule,
+                    categoryId: p.categoryId ?? "",
                   }}
                   members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname }))}
+                  categories={expenseCategories}
                 />
               </Card>
             </Collapsible>

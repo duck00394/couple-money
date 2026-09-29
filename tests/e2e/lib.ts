@@ -31,3 +31,11 @@ export async function expectText(page: Page, text: string | RegExp) {
 }
 
 export type Step = typeof step;
+
+/** 記帳頁的「進階（選填）」（預購／從基金扣）預設收起來，用之前先展開。 */
+export async function openAdvanced(page: Page) {
+  const box = page.getByTestId("tx-advanced");
+  if (await box.count() === 0) return;
+  if (await box.evaluate((el) => (el as HTMLDetailsElement).open)) return;
+  await box.locator("summary").click();
+}

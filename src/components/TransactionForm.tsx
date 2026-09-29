@@ -58,6 +58,7 @@ export function TransactionForm(props: {
     name: string;
     emoji: string;
     ownerId: string | null;
+    categoryId: string | null;
     total: number;
     paid: number;
     remaining: number;
@@ -181,6 +182,11 @@ export function TransactionForm(props: {
     ...(partner ? [{ label: partner.nickname, items: accounts.filter((a) => a.ownerId === partner.userId) }] : []),
     { label: "共同", items: accounts.filter((a) => a.ownerId === null) },
   ].filter((g) => g.items.length > 0);
+
+  const hasPreorderPicker = type === "EXPENSE" && (props.preorders?.length ?? 0) > 0;
+  const hasFundPicker = type === "EXPENSE" && (props.funds?.length ?? 0) > 0;
+  // 已經在用的時候直接展開，不要讓人去找
+  const advancedOpen = !!preorderId || !!fundId;
 
   const canSubmit = !!amount && !!accountId && !preview.error && !pending && !pendingCalc && (!fundId || !!fundAccountId);
 
@@ -313,6 +319,31 @@ export function TransactionForm(props: {
           </div>
         </div>
 
+          {/* 最近用過的標籤：點一下加入、再點一下移除。輸入框仍然可以直接打新的，
+            打完存檔後下次就會出現在這裡（標籤存在既有的 Tag 資料表，沒有第二套邏輯）。 */}
+        {(props.tagOptions?.length ?? 0) > 0 && (
+          <div className="-mt-2 flex flex-wrap gap-1.5" data-testid="tag-chips">
+            {props.tagOptions!.map((t) => {
+              const on = pickedTags.includes(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleTag(t)}
+                  className={cx(
+                    "press rounded-full px-3 py-1.5 text-[13px] shadow-xs transition",
+                    on ? "bg-brand-500 font-semibold text-white" : "bg-white text-stone-700 ring-1 ring-line",
+                  )}
+                >
+                  #{t}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+
         <div className="grid grid-cols-[1fr_auto] gap-3">
           <Field label="名稱（選填）">
             <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={50} placeholder={cats.find((c) => c.id === categoryId)?.name ?? "例如：晚餐"} />
@@ -336,6 +367,21 @@ export function TransactionForm(props: {
           </select>
         </Field>
 
+        {/* 預購與基金都是少數時候才用到的，收在「進階」裡，
+            讓「金額 → 分類 → 標籤 → 名稱／日期 → 帳戶 → 怎麼分」這條主線最短。
+            正在用的時候（編輯既有的、或從預購／基金頁點進來）預設展開。 */}
+        {(hasPreorderPicker || hasFundPicker) && (
+          <details className="group" open={advancedOpen} data-testid="tx-advanced">
+            <summary className="flex cursor-pointer list-none items-center justify-between rounded-2xl bg-stone-100/70 px-3.5 py-3 text-sm font-medium text-stone-600">
+              <span>
+                進階（選填）
+                <span className="ml-1 text-xs text-stone-400">
+                  {[hasPreorderPicker && "預購", hasFundPicker && "從基金扣"].filter(Boolean).join("・")}
+                </span>
+              </span>
+              <span className="text-stone-400 transition group-open:rotate-90">›</span>
+            </summary>
+            <div className="mt-3 space-y-5">
         {/* ── 預購：直接在記帳頁掛上去，不用再繞到預購頁 ──
                這裡完全不算錢：已付／待付／每人還需付都是預購那邊現算好帶進來的，
                再加上「這筆記下去之後」的即時試算（用的是同一份分帳結果）。 */}
@@ -345,7 +391,12 @@ export function TransactionForm(props: {
               <select
                 aria-label="預購"
                 value={preorderId}
-                onChange={(e) => setPreorderId(e.target.value)}
+                onChange={(e) => {
+                  setPreorderId(e.target.value);
+                  // 還沒選分類時，帶入這張單的預設分類（統計才不會落在「未分類」）
+                  const po = props.preorders?.find((x) => x.id === e.target.value);
+                  if (po?.categoryId && !categoryId) setCategoryId(po.categoryId);
+                }}
                 className={cx(inputClass, "appearance-none")}
                 data-testid="preorder-select"
               >
@@ -479,6 +530,9 @@ export function TransactionForm(props: {
             })()}
           </div>
         )}
+            </div>
+          </details>
+        )}
 
         {partner && (
           <div className="rounded-2xl bg-white p-4 shadow-sm">
@@ -578,29 +632,6 @@ export function TransactionForm(props: {
           <Field label="標籤（選填）" hint="用空白分隔，例如：#約會 #日本旅行">
             <Input aria-label="標籤" value={tagText} onChange={(e) => setTagText(e.target.value)} maxLength={200} placeholder="#約會" />
           </Field>
-          {/* 最近用過的標籤：點一下加入、再點一下移除。輸入框仍然可以直接打新的，
-              打完存檔後下次就會出現在這裡（標籤存在既有的 Tag 資料表，沒有第二套邏輯）。 */}
-          {(props.tagOptions?.length ?? 0) > 0 && (
-            <div className="-mt-2 flex flex-wrap gap-1.5" data-testid="tag-chips">
-              {props.tagOptions!.map((t) => {
-                const on = pickedTags.includes(t);
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => toggleTag(t)}
-                    className={cx(
-                      "press rounded-full px-3 py-1.5 text-[13px] shadow-xs transition",
-                      on ? "bg-brand-500 font-semibold text-white" : "bg-white text-stone-700 ring-1 ring-line",
-                    )}
-                  >
-                    #{t}
-                  </button>
-                );
-              })}
-            </div>
-          )}
           <Field label="備註（選填）">
             <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} className={cx(inputClass, "h-auto py-2.5")} />
           </Field>

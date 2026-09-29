@@ -135,14 +135,14 @@ export function buildDebtItems(txs: DebtSourceTx[], meId: string, keepSettled = 
     left -= take;
   }
 
-  // 已還清的只留最近幾筆，清單不會無限長
-  const settledBefore = items.slice(0, round);
-  const kept = settledBefore.slice(Math.max(0, settledBefore.length - keepSettled));
+  // 還沒還的全部留著；已還清的只留最近幾筆，清單才不會被一長串「已還清」洗版
+  const settledIds = items.filter((i) => i.remaining === 0).map((i) => i.id);
+  const drop = new Set(settledIds.slice(0, Math.max(0, settledIds.length - keepSettled)));
 
   return {
     total: sumBy(items, (i) => i.remaining),
     settled: credit - left,
-    items: [...kept, ...items.slice(round)],
+    items: items.filter((i) => !drop.has(i.id)),
     unassignedCredit: left,
   };
 }

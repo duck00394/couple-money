@@ -29,6 +29,7 @@ export interface PreorderFormValues {
   shipping: string;
   ownerId: string;
   note: string;
+  categoryId: string;
   items: PreorderItemValue[];
   /** 既有的「誰付多少」；null = 依「誰的」 */
   splitRule: SplitRule | null;
@@ -39,7 +40,11 @@ type SplitMode = "OWNER" | "EQUAL" | "RATIO" | "AMOUNT";
 const blankItem = (): PreorderItemValue => ({ name: "", unitAmount: "", qty: "1", ownerId: "JOINT" });
 
 /** 建立／編輯預購。金額只填「應付的」，已付多少由付款紀錄自己算。 */
-export function PreorderForm({ values, members }: { values: PreorderFormValues; members: Array<{ userId: string; nickname: string }> }) {
+export function PreorderForm({ values, members, categories }: {
+  values: PreorderFormValues;
+  members: Array<{ userId: string; nickname: string }>;
+  categories: Array<{ id: string; name: string }>;
+}) {
   const [state, action, pending] = useActionState(savePreorderAction, undefined);
   const [item, setItem] = useState(values.itemAmount);
   const [ship, setShip] = useState(values.shipping);
@@ -239,6 +244,14 @@ export function PreorderForm({ values, members }: { values: PreorderFormValues; 
         </Field>
       </div>
 
+      {/* 每次付款都會自動帶這個分類，統計才不會整包落在「未分類」 */}
+      <Field label="分類（選填）" hint="記錄付款時會自動帶入，之後還是可以改">
+        <Select name="categoryId" defaultValue={values.categoryId} aria-label="預購分類">
+          <option value="">不分類</option>
+          {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+
       {/* ── 誰付多少：沿用記帳那一套分帳規則，不是寫死一人一半 ── */}
       {members.length > 1 && (
         <div className="rounded-2xl bg-stone-100/70 p-3.5" data-testid="preorder-split">
@@ -316,12 +329,14 @@ export function PreorderForm({ values, members }: { values: PreorderFormValues; 
 }
 
 /** 記錄一次付款。金額自己填（訂金、尾款、分幾次都可以）。 */
-export function PayPreorderForm({ id, remaining, today, accounts, categories, members, meId, dues }: {
+export function PayPreorderForm({ id, remaining, today, accounts, categories, defaultCategoryId, members, meId, dues }: {
   id: string;
   remaining: number;
   today: string;
   accounts: Array<{ id: string; label: string }>;
   categories: Array<{ id: string; name: string }>;
+  /** 這張單的預設分類（建立預購時選的） */
+  defaultCategoryId: string | null;
   members: Array<{ userId: string; nickname: string }>;
   meId: string;
   /** 這張單每個人「應負擔」多少，用來提供「依預購分法」 */
@@ -329,7 +344,7 @@ export function PayPreorderForm({ id, remaining, today, accounts, categories, me
 }) {
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
-  const [categoryId, setCategoryId] = useState("");
+  const [categoryId, setCategoryId] = useState(defaultCategoryId ?? "");
   const [who, setWho] = useState<"ME" | "EQUAL" | "RULE">("ME");
   const [occurredOn, setOccurredOn] = useState(today);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());

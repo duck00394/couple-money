@@ -4,7 +4,7 @@
  * 前提：Phase 1～V7 已跑完，兩人帳號延續使用。
  */
 import { expect, type Page } from "@playwright/test";
-import { go, loaded, pageText, shot, step } from "./lib";
+import { go, loaded, openAdvanced, pageText, shot, step } from "./lib";
 
 export async function v8PreorderSplitItems(a: Page, b: Page) {
   // ───────────── 明細品項 ─────────────
@@ -92,6 +92,7 @@ export async function v8PreorderSplitItems(a: Page, b: Page) {
 
   // ───────────── 記帳頁的面板也吃同一套規則 ─────────────
   await go(a, "/transactions/new");
+  await openAdvanced(a);
   await a.getByTestId("preorder-select").selectOption(poId);
   await a.getByLabel("金額").fill("1000");
   await a.getByRole("button", { name: /餐飲/ }).click();

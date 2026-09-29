@@ -4,21 +4,11 @@ import { useActionState, useMemo, useState } from "react";
 import { settleAction } from "@/app/actions/settle";
 import { formatMoney, toInputString } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
-import { ArtTile } from "./ArtIcon";
+import { DebtItemRow, type DebtItemView } from "./DebtItems";
 import { showToast } from "./Toast";
 import { Button, Card, cx, ErrorText, Field, Select } from "./ui";
 
-export interface DebtPickerItem {
-  id: string;
-  dateKey: string;
-  title: string;
-  icon: string;
-  amount: number;
-  myShare: number;
-  owed: number;
-  settled: number;
-  remaining: number;
-}
+export type DebtPickerItem = DebtItemView;
 
 type Acc = { id: string; name: string };
 
@@ -99,29 +89,20 @@ export function DebtPicker(props: {
               data-remaining={i.remaining}
               className={cx("flex items-center gap-3 px-4 py-3", done ? "opacity-55" : "cursor-pointer active:bg-stone-50")}
             >
-              <input
-                type="checkbox"
-                className="h-5 w-5 shrink-0 rounded-md border-stone-300 accent-brand-500"
-                checked={on}
-                disabled={done || pending}
-                onChange={() => toggle(i.id)}
-                aria-label={`選取 ${i.dateKey} ${i.title}`}
+              <DebtItemRow
+                item={i}
+                shareLabel="我應負擔"
+                checkbox={
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 shrink-0 rounded-md border-stone-300 accent-brand-500"
+                    checked={on}
+                    disabled={done || pending}
+                    onChange={() => toggle(i.id)}
+                    aria-label={`選取 ${i.dateKey} ${i.title}`}
+                  />
+                }
               />
-              <ArtTile name={i.icon} size={36} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[15px] font-medium text-stone-800">{i.title}</p>
-                {/* 390px 一行塞不下四個欄位，拆兩行才不會被截掉 */}
-                <p className="truncate text-xs text-stone-500">
-                  {i.dateKey.replaceAll("-", "/")}・原始 {formatMoney(i.amount)}
-                </p>
-                <p className="truncate text-[11px] text-stone-400">
-                  我應負擔 {formatMoney(i.myShare)}
-                  {i.settled > 0 && `・已沖銷 ${formatMoney(i.settled)} / ${formatMoney(i.owed)}`}
-                </p>
-              </div>
-              <span className={cx("tnum shrink-0 text-[15px]", done ? "text-stone-400" : "font-semibold text-brand-700")}>
-                {done ? "已還清" : formatMoney(i.remaining)}
-              </span>
             </label>
           );
         })}

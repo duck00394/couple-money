@@ -100,6 +100,7 @@ export async function payablePreorders(ctx: BookContext, keepId?: string | null)
       name: p.name,
       emoji: p.emoji,
       ownerId: p.ownerId,
+      categoryId: p.categoryId,
       total: p.money.total,
       paid: p.money.paid,
       remaining: p.money.remaining,

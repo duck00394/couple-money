@@ -59,6 +59,7 @@ function parse(form: FormData) {
     note: str(form, "note"),
     items: extra.items,
     splitRule: extra.splitRule,
+    categoryId: str(form, "categoryId") || null,
   };
 }
 

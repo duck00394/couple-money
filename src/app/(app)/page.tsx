@@ -53,6 +53,7 @@ export default async function DashboardPage() {
     listTransactions(ctx, { to: today.start, take: HOME_HISTORY_TAKE }),
   ]);
   const { shown: todayShown, hidden: todayHidden } = splitToday(sortTodayByEntry(todays));
+  const todayReward = rewards.byUser.get(ctx.me.userId) ?? 0;
   const historyGroups = groupByDateKey(historyRows, (tx) => toDateKey(tx.occurredAt));
 
   // 今日任務：我自己那一份（共同任務也算我的），已完成的排到後面
@@ -216,27 +217,31 @@ export default async function DashboardPage() {
         )}
       </Card>
 
-      {/* ── 5. 今日獎勵 ── */}
-      <SectionTitle right={<Link href="/tasks" className="text-sm text-brand-600">去提領</Link>}>今日獎勵</SectionTitle>
-      <Card className="px-5 py-4" data-testid="today-reward-card">
-        <div className="flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs text-stone-500">今天賺到</p>
-            <p className="amount mt-0.5 text-[1.9rem] text-brand-700" data-testid="today-rewards">
-              +{formatMoney(rewards.byUser.get(ctx.me.userId) ?? 0)}
-            </p>
-          </div>
-          <div className="shrink-0 text-right">
-            <p className="text-xs text-stone-500">我的獎勵餘額</p>
-            <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="reward-balance">{formatMoney(myReward.balance)}</p>
-          </div>
-        </div>
-        {ctx.partner && (
-          <p className="mt-2 border-t border-line pt-2 text-xs text-stone-500">
-            兩個人今天合計 +{formatMoney(rewards.total)}
-          </p>
-        )}
-      </Card>
+      {/* ── 5. 今日獎勵：全部是 0 的時候不佔位置（跟提醒卡同一條規則） ── */}
+      {(todayReward > 0 || myReward.balance > 0 || rewards.total > 0) && (
+        <>
+          <SectionTitle right={<Link href="/tasks" className="text-sm text-brand-600">去提領</Link>}>今日獎勵</SectionTitle>
+          <Card className="px-5 py-4" data-testid="today-reward-card">
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-stone-500">今天賺到</p>
+                <p className="amount mt-0.5 text-[1.9rem] text-brand-700" data-testid="today-rewards">
+                  +{formatMoney(todayReward)}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-xs text-stone-500">我的獎勵餘額</p>
+                <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="reward-balance">{formatMoney(myReward.balance)}</p>
+              </div>
+            </div>
+            {ctx.partner && (
+              <p className="mt-2 border-t border-line pt-2 text-xs text-stone-500">
+                兩個人今天合計 +{formatMoney(rewards.total)}
+              </p>
+            )}
+          </Card>
+        </>
+      )}
 
       {/* ── 6. 基金進度（摘要與入口，完整清單在基金頁） ── */}
       <SectionTitle right={<Link href="/funds" className="text-sm text-brand-600">全部基金</Link>}>

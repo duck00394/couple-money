@@ -205,6 +205,7 @@ model Category {
 
   transactions Transaction[]
   budgets      Budget[]
+  preorders    Preorder[]
 
   @@index([bookId, kind])
 }
@@ -807,6 +808,9 @@ model Preorder {
   owner       User?     @relation("PreorderOwner", fields: [ownerId], references: [id])
   /// 誰付多少（沿用既有的分帳規則引擎；null = 舊行為：依 ownerId，共同就平分）
   splitRule   Json?
+  /// 付款時預設帶的分類；null = 不帶（統計就會落在「未分類」）
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
   note        String?
   /// 取消時間。取消不會自動產生任何金流，實際退款請走既有的退款流程。
   cancelledAt DateTime?

@@ -1,5 +1,6 @@
 import { DebtCard } from "@/components/DebtCard";
 import { DebtPicker } from "@/components/DebtPicker";
+import { DebtItemList } from "@/components/DebtItems";
 import { CancelSettlementButton, SettleForm } from "@/components/SettleForm";
 import { Card, Collapsible, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
@@ -11,13 +12,10 @@ import { ArtIcon } from "@/components/ArtIcon";
 
 export default async function SettlePage() {
   const { ctx } = await getAppContext();
-  const [balances, accounts, history, debtItems] = await Promise.all([
-    getBalances(ctx),
-    listAccounts(ctx),
-    listSettlements(ctx),
-    myDebtItems(ctx),
-  ]);
+  const [balances, accounts, history] = await Promise.all([getBalances(ctx), listAccounts(ctx), listSettlements(ctx)]);
   const debt = balances.debts[0];
+  // 逐筆明細一律看「欠錢的那一方」，所以兩個人打開這一頁看到的是同一份東西
+  const debtItems = debt ? await myDebtItems(ctx, debt.from) : null;
   const name = (id: string) => (id === ctx.me.userId ? "我" : ctx.members.find((m) => m.userId === id)?.nickname ?? "已離開的成員");
   const accountsOf = (uid: string) =>
     accounts.filter((a) => a.ownerId === uid).map((a) => ({ id: a.id, name: a.name, icon: ACCOUNT_TYPE_ICON[a.type] }));
@@ -30,7 +28,14 @@ export default async function SettlePage() {
       <div className="px-4">
         <DebtCard ctx={ctx} debt={debt} compact />
 
-        {iOwe && ctx.canWrite && (
+        {/* 對方欠我：同一份逐筆明細，但只能看不能勾（錢是對方要付的） */}
+        {debt && debtItems && !iOwe && (
+          <div className="mt-3">
+            <DebtItemList items={debtItems.items} ownerName={name(debt.from)} />
+          </div>
+        )}
+
+        {iOwe && ctx.canWrite && debtItems && (
           <div className="mt-3" data-testid="debt-picker">
             <DebtPicker
               key={`${debt.from}-${debt.to}-${debt.amount}`}

@@ -4,7 +4,7 @@
  * 前提：Phase 1～V6 已跑完，兩人帳號延續使用。
  */
 import { expect, type Page } from "@playwright/test";
-import { go, loaded, pageText, shot, step } from "./lib";
+import { go, loaded, openAdvanced, pageText, shot, step } from "./lib";
 
 /** 某個人在「每個人還需付」裡的那一行。 */
 const shareRow = (p: Page, name: string) =>
@@ -31,6 +31,7 @@ export async function v7PreorderForm(a: Page, b: Page) {
 
   // ── 記帳頁可以直接選預購 ──
   await go(a, "/transactions/new");
+  await openAdvanced(a);
   const select = a.getByTestId("preorder-select");
   await expect(select).toBeVisible();
   await expect(select).toContainText("V7共同預購");
@@ -73,6 +74,7 @@ export async function v7PreorderForm(a: Page, b: Page) {
 
   // ── 兩人平分的那一筆：兩個人一起往下降 ──
   await go(a, "/transactions/new");
+  await openAdvanced(a);
   await a.getByTestId("preorder-select").selectOption(poId);
   await a.getByLabel("金額").fill("2000");
   await a.getByRole("button", { name: /餐飲/ }).click();
