@@ -10,9 +10,11 @@
  * **待結款不是支出**：還沒付的錢仍然在帳戶裡，不扣餘額、不進統計。
  * 已付與待結一律由 Transaction 現算，訂單本身不存任何金額狀態。
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { assert } from "../domain/errors";
-import { moneyOf, sharesOf, stateOf, sortKey, daysUntil, type PreorderMoney, type PreorderShare, type PreorderState } from "../domain/preorder";
+import { itemsTotal, moneyOf, sharesOf, stateOf, sortKey, daysUntil, type PreorderMoney, type PreorderShare, type PreorderState } from "../domain/preorder";
+import { computeSplit, type SplitRule } from "../domain/split";
 import { MAX_AMOUNT } from "@/lib/money";
 import { dbDateToKey, keyToDbDate, toDateKey } from "@/lib/dates";
 import { toIconKey } from "@/lib/icons";
@@ -21,43 +23,98 @@ import { createTransaction, type TransactionInput } from "./ledger";
 import { refundedByTransaction } from "./transfers";
 import { auditIn } from "./funds";
 
+export interface PreorderItemInput {
+  name: string;
+  unitAmount: number;
+  qty: number;
+  /** null = 共同 */
+  ownerId: string | null;
+}
+
 export interface PreorderInput {
   name: string;
   seller: string;
   emoji: string;
   expectedOn: string | null;
+  /** 沒有明細品項時用這個；有明細品項時會被它們的加總蓋掉 */
   itemAmount: number;
   shipping: number;
-  /** null = 共同 */
+  /** null = 共同。沒設分帳規則時，它決定誰付多少 */
   ownerId: string | null;
   note: string;
+  /** 誰付多少（沿用既有的分帳規則）。undefined = 不變動、null = 清掉回到依 ownerId */
+  splitRule?: SplitRule | null;
+  /** 明細品項。undefined = 不變動、[] = 清空 */
+  items?: PreorderItemInput[];
+}
+
+/** 明細品項：檢查每一列，並回傳寫進資料庫的樣子。 */
+function validateItems(ctx: BookContext, items: PreorderItemInput[]) {
+  assert(items.length <= 50, "PREORDER_ITEMS", "明細品項最多 50 項");
+  return items.map((it, i) => {
+    const name = it.name.trim();
+    assert(name.length >= 1 && name.length <= 40, "PREORDER_ITEM_NAME", "每個品項都要有 1～40 個字的名稱");
+    assert(Number.isInteger(it.unitAmount) && it.unitAmount > 0 && it.unitAmount <= MAX_AMOUNT, "PREORDER_ITEM_AMOUNT", `「${name}」的單價不正確`);
+    assert(Number.isInteger(it.qty) && it.qty >= 1 && it.qty <= 999, "PREORDER_ITEM_QTY", `「${name}」的數量要在 1～999 之間`);
+    assert(it.ownerId === null || ctx.members.some((m) => m.userId === it.ownerId), "PREORDER_ITEM_OWNER", `「${name}」的「誰的」不正確`);
+    return { name, unitAmount: it.unitAmount, qty: it.qty, ownerId: it.ownerId, sortOrder: i };
+  });
+}
+
+/**
+ * 誰付多少：沿用既有的分帳規則引擎驗證，錯的規則不會被存下來。
+ * 用的是「應付總額」去算，所以 AMOUNT 規則的加總必須剛好等於應付總額。
+ */
+function validateSplit(ctx: BookContext, rule: SplitRule | null | undefined, total: number) {
+  if (rule === undefined) return undefined;
+  if (rule === null) return null;
+  const ids = new Set(ctx.members.map((m) => m.userId));
+  assert(rule.participants.length > 0 && rule.participants.every((p) => ids.has(p.userId)), "PREORDER_SPLIT", "「誰付多少」的對象必須是帳本成員");
+  assert(total > 0, "PREORDER_SPLIT", "要先有應付總額才能設定誰付多少");
+  computeSplit(total, rule); // 算不出來就直接丟既有的分帳錯誤訊息
+  return rule;
 }
 
 function validate(ctx: BookContext, input: PreorderInput) {
   const name = input.name.trim();
   assert(name.length >= 1 && name.length <= 40, "PREORDER_NAME", "品名需為 1～40 個字");
-  assert(Number.isInteger(input.itemAmount) && input.itemAmount > 0 && input.itemAmount <= MAX_AMOUNT, "PREORDER_AMOUNT", "請輸入正確的商品金額");
+  const items = input.items === undefined ? undefined : validateItems(ctx, input.items);
+  // 有明細品項時，商品金額一律是它們的加總，不吃傳進來的數字
+  const itemAmount = items && items.length > 0 ? itemsTotal(items) : input.itemAmount;
+  assert(Number.isInteger(itemAmount) && itemAmount > 0 && itemAmount <= MAX_AMOUNT, "PREORDER_AMOUNT", "請輸入正確的商品金額");
   assert(Number.isInteger(input.shipping) && input.shipping >= 0 && input.shipping <= MAX_AMOUNT, "PREORDER_SHIPPING", "請輸入正確的運費");
   assert(input.seller.length <= 40, "PREORDER_SELLER", "賣家最多 40 個字");
   assert(input.note.length <= 200, "PREORDER_NOTE", "備註最多 200 個字");
   assert(input.ownerId === null || ctx.members.some((m) => m.userId === input.ownerId), "PREORDER_OWNER", "請選擇這是誰的預購");
+  const splitRule = validateSplit(ctx, input.splitRule, itemAmount + input.shipping);
   return {
-    name,
-    seller: input.seller.trim() || null,
-    emoji: toIconKey(input.emoji || "package"),
-    expectedOn: input.expectedOn ? keyToDbDate(input.expectedOn) : null,
-    itemAmount: input.itemAmount,
-    shipping: input.shipping,
-    ownerId: input.ownerId,
-    note: input.note.trim() || null,
+    data: {
+      name,
+      seller: input.seller.trim() || null,
+      emoji: toIconKey(input.emoji || "package"),
+      expectedOn: input.expectedOn ? keyToDbDate(input.expectedOn) : null,
+      itemAmount,
+      shipping: input.shipping,
+      ownerId: input.ownerId,
+      note: input.note.trim() || null,
+      ...(splitRule !== undefined ? { splitRule: splitRule as unknown as Prisma.InputJsonValue | typeof Prisma.DbNull } : {}),
+    },
+    items,
   };
 }
 
 export async function createPreorder(ctx: BookContext, input: PreorderInput) {
   assertCanWrite(ctx);
-  const data = validate(ctx, input);
-  const row = await prisma.preorder.create({ data: { ...data, bookId: ctx.book.id, createdById: ctx.me.userId } });
-  await auditIn(prisma, ctx, "CREATE", "Preorder", row.id, null, data);
+  const { data, items } = validate(ctx, input);
+  const row = await prisma.preorder.create({
+    data: {
+      ...data,
+      bookId: ctx.book.id,
+      createdById: ctx.me.userId,
+      ...(items && items.length > 0 ? { items: { create: items } } : {}),
+    },
+  });
+  await auditIn(prisma, ctx, "CREATE", "Preorder", row.id, null, { ...data, items });
   return row;
 }
 
@@ -65,9 +122,16 @@ export async function updatePreorder(ctx: BookContext, id: string, input: Preord
   assertCanWrite(ctx);
   const before = await prisma.preorder.findFirst({ where: { id, bookId: ctx.book.id, deletedAt: null } });
   assert(before, "PREORDER_NOT_FOUND", "找不到這張預購");
-  const data = validate(ctx, input);
-  const row = await prisma.preorder.update({ where: { id }, data });
-  await auditIn(prisma, ctx, "UPDATE", "Preorder", id, before, data);
+  const { data, items } = validate(ctx, input);
+  const row = await prisma.$transaction(async (tx) => {
+    // 明細品項整批換掉：數量會變、順序會變，一列一列比對沒有意義
+    if (items !== undefined) {
+      await tx.preorderItem.deleteMany({ where: { preorderId: id } });
+      if (items.length > 0) await tx.preorderItem.createMany({ data: items.map((it) => ({ ...it, preorderId: id })) });
+    }
+    return tx.preorder.update({ where: { id }, data });
+  });
+  await auditIn(prisma, ctx, "UPDATE", "Preorder", id, before, { ...data, items });
   return row;
 }
 
@@ -111,16 +175,23 @@ export interface PreorderView {
   money: PreorderMoney;
   /** 每個人應負擔／已負擔／還需付多少 */
   shares: PreorderShare[];
+  /** 誰付多少的規則；null = 依「誰的」（共同就平分） */
+  splitRule: SplitRule | null;
+  /** 明細品項（沒有就是空的，商品金額由上面那個欄位決定） */
+  items: Array<{ id: string; name: string; unitAmount: number; qty: number; ownerId: string | null; total: number }>;
   state: PreorderState;
   daysLeft: number | null;
   payments: Array<{ id: string; amount: number; occurredOn: string; title: string | null; refunded: number }>;
 }
 
 /** 把一批訂單加上「已付／待結」。金額一律由 Transaction 現算。 */
+export const PREORDER_INCLUDE = { items: { orderBy: { sortOrder: "asc" } } } as const;
+type PreorderRow = Prisma.PreorderGetPayload<{ include: typeof PREORDER_INCLUDE }>;
+
 async function withMoney(
   bookId: string,
   memberIds: string[],
-  rows: Array<Awaited<ReturnType<typeof createPreorder>>>,
+  rows: PreorderRow[],
   today: string,
 ): Promise<PreorderView[]> {
   const ids = rows.map((r) => r.id);
@@ -173,8 +244,19 @@ async function withMoney(
       ownerId: r.ownerId,
       note: r.note,
       money,
+      splitRule: (r.splitRule as unknown as SplitRule | null) ?? null,
+      items: r.items.map((it) => ({
+        id: it.id, name: it.name, unitAmount: it.unitAmount, qty: it.qty,
+        ownerId: it.ownerId, total: it.unitAmount * it.qty,
+      })),
       // 取消的單子不用再付了，每個人的「還需付」也一起歸零
-      shares: sharesOf(r.cancelledAt ? 0 : money.total, r.ownerId, memberIds, borne),
+      shares: sharesOf(
+        r.cancelledAt ? 0 : money.total,
+        (r.splitRule as unknown as SplitRule | null) ?? null,
+        r.ownerId,
+        memberIds,
+        borne,
+      ),
       state: stateOf(r.cancelledAt, money),
       daysLeft: daysUntil(expectedOn, today),
       payments: mine.map((t) => ({
@@ -190,7 +272,7 @@ async function withMoney(
 
 export async function listPreorders(ctx: BookContext, opts: { today?: string } = {}): Promise<PreorderView[]> {
   const today = opts.today ?? toDateKey(new Date());
-  const rows = await prisma.preorder.findMany({ where: { bookId: ctx.book.id, deletedAt: null } });
+  const rows = await prisma.preorder.findMany({ where: { bookId: ctx.book.id, deletedAt: null }, include: PREORDER_INCLUDE });
   const views = await withMoney(ctx.book.id, ctx.members.map((m) => m.userId), rows, today);
   return views.sort((a, b) => {
     const ka = sortKey(a.state, a.expectedOn, a.daysLeft);
@@ -201,7 +283,7 @@ export async function listPreorders(ctx: BookContext, opts: { today?: string } =
 
 export async function getPreorder(ctx: BookContext, id: string, opts: { today?: string } = {}) {
   const today = opts.today ?? toDateKey(new Date());
-  const row = await prisma.preorder.findFirst({ where: { id, bookId: ctx.book.id, deletedAt: null } });
+  const row = await prisma.preorder.findFirst({ where: { id, bookId: ctx.book.id, deletedAt: null }, include: PREORDER_INCLUDE });
   if (!row) return null;
   return (await withMoney(ctx.book.id, ctx.members.map((m) => m.userId), [row], today))[0];
 }

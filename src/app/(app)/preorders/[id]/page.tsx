@@ -47,6 +47,21 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
             <p className="mt-0.5 text-[11px] text-stone-400">
               商品 {formatMoney(p.itemAmount)}{p.shipping > 0 ? `・運費 ${formatMoney(p.shipping)}` : ""}
             </p>
+            {/* 明細品項：這張單裡有什麼 */}
+            {p.items.length > 0 && (
+              <div className="mt-2 space-y-1 rounded-xl bg-canvas/70 px-3 py-2 text-xs" data-testid="preorder-item-list">
+                {p.items.map((it) => (
+                  <div key={it.id} className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-stone-600">
+                      {it.name}
+                      {it.qty > 1 && <span className="text-stone-400"> ×{it.qty}</span>}
+                      <span className="ml-1 text-stone-400">{it.ownerId === null ? "共同" : who2(it.ownerId)}</span>
+                    </span>
+                    <span className="tnum shrink-0 text-stone-700">{formatMoney(it.total)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <ProgressBar value={progress} className="mt-2.5" />
             <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -64,6 +79,9 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
             {p.shares.length > 0 && (
               <div className="mt-3 space-y-1 border-t border-line pt-3 text-sm" data-testid="preorder-shares">
                 <p className="text-xs text-stone-500">每個人還需付</p>
+                <p className="text-[11px] text-stone-400">
+                  {p.splitRule ? "依這張單設定的「誰付多少」" : p.ownerId === null ? "共同：兩人平分" : `全部算 ${who2(p.ownerId)} 的`}
+                </p>
                 {p.shares.map((sh) => (
                   <div key={sh.userId} className="flex items-baseline justify-between" data-share={sh.userId}>
                     <span className="text-stone-700">{who2(sh.userId)}</span>
@@ -94,6 +112,7 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                 accounts={payable}
                 categories={categories.filter((c) => c.kind === "EXPENSE").map((c) => ({ id: c.id, name: c.name }))}
                 members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname }))}
+                dues={p.shares.map((sh) => ({ userId: sh.userId, due: sh.due }))}
                 meId={ctx.me.userId}
               />
               <Link href={`/transactions/new?preorder=${p.id}`} className="mt-3 block text-center text-xs text-brand-600 underline underline-offset-2">
@@ -132,6 +151,13 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                     expectedOn: p.expectedOn ?? "", itemAmount: toInputString(p.itemAmount),
                     shipping: p.shipping ? toInputString(p.shipping) : "",
                     ownerId: p.ownerId ?? "JOINT", note: p.note ?? "",
+                    items: p.items.map((it) => ({
+                      name: it.name,
+                      unitAmount: toInputString(it.unitAmount),
+                      qty: String(it.qty),
+                      ownerId: it.ownerId ?? "JOINT",
+                    })),
+                    splitRule: p.splitRule,
                   }}
                   members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname }))}
                 />

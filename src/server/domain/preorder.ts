@@ -1,4 +1,5 @@
 import { allocate } from "@/lib/money";
+import { computeSplit, type SplitRule } from "./split";
 
 /**
  * 預購的純邏輯。
@@ -74,11 +75,51 @@ export function etaText(expectedOn: string | null, today: string): string {
   return `預計 ${(expectedOn ?? "").replaceAll("-", "/")} 到貨`;
 }
 
+/* ───────────────────── 明細品項 ───────────────────── */
+
+export interface PreorderItemLine {
+  name: string;
+  /** 單價（最小單位） */
+  unitAmount: number;
+  qty: number;
+  /** 這件是誰的：null = 共同 */
+  ownerId: string | null;
+}
+
+/** 明細品項的小計。 */
+export const lineTotal = (item: PreorderItemLine) => item.unitAmount * item.qty;
+
+/** 有明細品項時，商品金額就是它們的加總（不再手動填）。 */
+export const itemsTotal = (items: PreorderItemLine[]) => items.reduce((a, i) => a + lineTotal(i), 0);
+
+/**
+ * 由明細品項推出「誰付多少」的金額分配。
+ *
+ * 每件東西標了「誰的」就算誰的，標共同的那幾件再平分。
+ * 這只是給畫面上「依明細品項帶入」用的捷徑——真正生效的仍然是訂單上存的分帳規則，
+ * 使用者隨時可以自己改。
+ */
+export function duesFromItems(items: PreorderItemLine[], memberIds: string[]): Map<string, number> {
+  const out = new Map<string, number>(memberIds.map((id) => [id, 0]));
+  const add = (id: string, n: number) => out.set(id, (out.get(id) ?? 0) + n);
+  let joint = 0;
+  for (const item of items) {
+    const amount = lineTotal(item);
+    if (item.ownerId && out.has(item.ownerId)) add(item.ownerId, amount);
+    else joint += amount;
+  }
+  if (joint > 0 && memberIds.length > 0) {
+    const parts = allocate(joint, memberIds.map(() => 1));
+    memberIds.forEach((id, i) => add(id, parts[i]));
+  }
+  return out;
+}
+
 /* ───────────────────── 每個人還需付多少 ───────────────────── */
 
 export interface PreorderShare {
   userId: string;
-  /** 這張單這個人應該負擔多少（依「誰的」決定） */
+  /** 這張單這個人應該負擔多少 */
   due: number;
   /** 已經負擔掉多少（已付款那幾筆的分帳結果，扣掉退款） */
   borne: number;
@@ -89,11 +130,46 @@ export interface PreorderShare {
 }
 
 /**
- * 把應付總額分給兩個人。
+ * 「誰付多少」：每個人應負擔的金額。
  *
- * 「誰的」決定應負擔：
- *   - 我的／對方的 → 那個人全額
- *   - 共同         → 兩人平分（餘數用既有的 allocate，跟分帳同一套分法）
+ * 有存分帳規則就用**既有的** `computeSplit()`（平分／比例／金額／一人全付），
+ * 跟記帳的分帳走同一套引擎，這裡不自己算。
+ * 沒存規則就是舊行為：「我的／對方的」算那個人的、「共同」平分。
+ *
+ * 規則壞掉（例如成員換了、金額對不起來）時退回舊行為，寧可保守，也不要讓畫面爆掉。
+ */
+export function duesOf(
+  total: number,
+  splitRule: SplitRule | null,
+  ownerId: string | null,
+  memberIds: string[],
+): Map<string, number> {
+  const ids = memberIds.length > 0 ? memberIds : ownerId ? [ownerId] : [];
+  if (ids.length === 0) return new Map();
+  if (total <= 0) return new Map(ids.map((id) => [id, 0]));
+
+  if (splitRule) {
+    const known = splitRule.participants.filter((p) => ids.includes(p.userId));
+    if (known.length === splitRule.participants.length && known.length > 0) {
+      try {
+        const lines = computeSplit(total, splitRule);
+        const m = new Map<string, number>(ids.map((id) => [id, 0]));
+        for (const l of lines) m.set(l.userId, l.amount);
+        return m;
+      } catch {
+        // 規則算不出來就往下走，用舊行為
+      }
+    }
+  }
+
+  const weights = ownerId === null ? ids.map(() => 1) : ids.map((id) => (id === ownerId ? 1 : 0));
+  // 「誰的」指向已經不在帳本裡的人時，退回平分，免得金額憑空消失
+  const parts = weights.some((w) => w > 0) ? allocate(total, weights) : allocate(total, ids.map(() => 1));
+  return new Map(ids.map((id, i) => [id, parts[i]]));
+}
+
+/**
+ * 把「應負擔」與「已負擔」湊成畫面要的樣子。
  *
  * 「已負擔」不是自己算的——是把這張單底下每一筆付款的**既有分帳結果**加總，
  * 所以「這次我先付，下次你付」「這次兩人平分」都能正確反映，
@@ -101,18 +177,15 @@ export interface PreorderShare {
  */
 export function sharesOf(
   total: number,
+  splitRule: SplitRule | null,
   ownerId: string | null,
   memberIds: string[],
   borneByUser: Map<string, number>,
 ): PreorderShare[] {
-  const ids = memberIds.length > 0 ? memberIds : ownerId ? [ownerId] : [];
-  if (ids.length === 0) return [];
-  const weights = ownerId === null ? ids.map(() => 1) : ids.map((id) => (id === ownerId ? 1 : 0));
-  // 「誰的」指向已經不在帳本裡的人時，退回平分，免得金額憑空消失
-  const dues = weights.some((w) => w > 0) ? allocate(total, weights) : allocate(total, ids.map(() => 1));
-  return ids.map((userId, i) => {
+  const dues = duesOf(total, splitRule, ownerId, memberIds);
+  return [...dues.entries()].map(([userId, due]) => {
     const borne = borneByUser.get(userId) ?? 0;
-    const diff = dues[i] - borne;
-    return { userId, due: dues[i], borne, remaining: Math.max(0, diff), over: Math.max(0, -diff) };
+    const diff = due - borne;
+    return { userId, due, borne, remaining: Math.max(0, diff), over: Math.max(0, -diff) };
   });
 }

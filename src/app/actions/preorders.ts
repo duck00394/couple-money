@@ -23,15 +23,42 @@ function parse(form: FormData) {
     return v;
   };
   const owner = str(form, "ownerId");
+  // 明細品項與「誰付多少」用 JSON 帶（欄位是動態的，用 FormData 一個個拆很難維護）
+  const extraSchema = z.object({
+    items: z.array(z.object({
+      name: z.string().max(40),
+      unitAmount: z.number().int(),
+      qty: z.number().int(),
+      ownerId: z.string().nullable(),
+    })).max(50),
+    splitRule: z.object({
+      method: z.enum(["EQUAL", "RATIO", "AMOUNT", "FULL", "SHARES"]),
+      participants: z.array(z.object({ userId: z.string(), value: z.number().optional() })).min(1),
+    }).nullable(),
+  });
+  const rawExtra = str(form, "extra");
+  let extra: z.infer<typeof extraSchema> = { items: [], splitRule: null };
+  if (rawExtra) {
+    try {
+      const r = extraSchema.safeParse(JSON.parse(rawExtra));
+      if (!r.success) throw new DomainError("PREORDER_INPUT", r.error.issues[0]?.message ?? "資料格式不正確");
+      extra = r.data;
+    } catch (e) {
+      if (e instanceof DomainError) throw e;
+      throw new DomainError("PREORDER_INPUT", "資料格式不正確，請重新整理頁面");
+    }
+  }
   return {
     name: str(form, "name"),
     seller: str(form, "seller"),
     emoji: str(form, "emoji"),
     expectedOn: str(form, "expectedOn") || null,
-    itemAmount: money("itemAmount", true),
+    itemAmount: money("itemAmount", extra.items.length === 0),
     shipping: money("shipping", false),
     ownerId: owner === "JOINT" || owner === "" ? null : owner,
     note: str(form, "note"),
+    items: extra.items,
+    splitRule: extra.splitRule,
   };
 }
 

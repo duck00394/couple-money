@@ -11,7 +11,7 @@ export default async function NewPreorderPage() {
       <PageHeader title="新增預購" back="/preorders" />
       <Card className="mx-4">
         <PreorderForm
-          values={{ name: "", seller: "", emoji: "package", expectedOn: "", itemAmount: "", shipping: "", ownerId: ctx.me.userId, note: "" }}
+          values={{ name: "", seller: "", emoji: "package", expectedOn: "", itemAmount: "", shipping: "", ownerId: ctx.me.userId, note: "", items: [], splitRule: null }}
           members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname }))}
         />
       </Card>

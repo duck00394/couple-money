@@ -6,8 +6,18 @@ import { formatMoney, parseAmount, toInputString } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { IconPicker } from "./EmojiPicker";
 import { Button, cx, DateInput, ErrorText, Field, Input, Select, inputClass } from "./ui";
+import { ArtIcon } from "./ArtIcon";
+import { computeSplit, type SplitRule } from "@/server/domain/split";
 
 const PREORDER_ICONS = ["package", "gamepad", "shirt", "smartphone", "book", "gift", "cake", "sofa", "laptop", "plane", "shopping-bag", "tag"] as const;
+
+export interface PreorderItemValue {
+  name: string;
+  unitAmount: string;
+  qty: string;
+  /** "JOINT" = 共同 */
+  ownerId: string;
+}
 
 export interface PreorderFormValues {
   id?: string;
@@ -19,35 +29,279 @@ export interface PreorderFormValues {
   shipping: string;
   ownerId: string;
   note: string;
+  items: PreorderItemValue[];
+  /** 既有的「誰付多少」；null = 依「誰的」 */
+  splitRule: SplitRule | null;
 }
+
+type SplitMode = "OWNER" | "EQUAL" | "RATIO" | "AMOUNT";
+
+const blankItem = (): PreorderItemValue => ({ name: "", unitAmount: "", qty: "1", ownerId: "JOINT" });
 
 /** 建立／編輯預購。金額只填「應付的」，已付多少由付款紀錄自己算。 */
 export function PreorderForm({ values, members }: { values: PreorderFormValues; members: Array<{ userId: string; nickname: string }> }) {
   const [state, action, pending] = useActionState(savePreorderAction, undefined);
   const [item, setItem] = useState(values.itemAmount);
   const [ship, setShip] = useState(values.shipping);
-  const total = (parseAmount(item) ?? 0) + (parseAmount(ship) ?? 0);
+  const [items, setItems] = useState<PreorderItemValue[]>(values.items);
+  const [owner, setOwner] = useState(values.ownerId);
+
+  // ── 明細品項：有品項時，商品金額就是它們的加總 ──
+  const lineTotal = (it: PreorderItemValue) => (parseAmount(it.unitAmount) ?? 0) * (Number(it.qty) || 0);
+  const itemsSum = items.reduce((a, it) => a + lineTotal(it), 0);
+  const hasItems = items.length > 0;
+  const goods = hasItems ? itemsSum : parseAmount(item) ?? 0;
+  const total = goods + (parseAmount(ship) ?? 0);
+  const setItemAt = (i: number, patch: Partial<PreorderItemValue>) =>
+    setItems((prev) => prev.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
+  // ── 誰付多少 ──
+  const initialMode: SplitMode =
+    values.splitRule?.method === "EQUAL" ? "EQUAL"
+    : values.splitRule?.method === "RATIO" ? "RATIO"
+    : values.splitRule?.method === "AMOUNT" || values.splitRule?.method === "FULL" ? "AMOUNT"
+    : "OWNER";
+  const [mode, setMode] = useState<SplitMode>(initialMode);
+  const firstId = members[0]?.userId ?? "";
+  const valueOf = (uid: string) => values.splitRule?.participants.find((p) => p.userId === uid)?.value;
+  const [ratio, setRatio] = useState(() => String(valueOf(firstId) ?? 50));
+  const [amounts, setAmounts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(members.map((m) => {
+      const v = values.splitRule?.method === "AMOUNT" ? valueOf(m.userId) : undefined;
+      return [m.userId, v === undefined ? "" : toInputString(v)];
+    })),
+  );
+
+  /** 送出時真正存下去的分帳規則。 */
+  const splitRule: SplitRule | null = (() => {
+    if (members.length < 2 || mode === "OWNER" || total <= 0) return null;
+    if (mode === "EQUAL") return { method: "EQUAL", participants: members.map((m) => ({ userId: m.userId })) };
+    if (mode === "RATIO") {
+      const r = Math.min(100, Math.max(0, Number(ratio) || 0));
+      return {
+        method: "RATIO",
+        participants: [
+          { userId: members[0].userId, value: r },
+          { userId: members[1].userId, value: Math.round((100 - r) * 100) / 100 },
+        ],
+      };
+    }
+    return { method: "AMOUNT", participants: members.map((m) => ({ userId: m.userId, value: parseAmount(amounts[m.userId] ?? "") ?? 0 })) };
+  })();
+
+  /** 畫面上「每個人應負擔多少」的即時預覽。 */
+  const dues = (() => {
+    if (total <= 0) return null;
+    try {
+      const rule: SplitRule = splitRule ?? {
+        method: owner === "JOINT" ? "EQUAL" : "FULL",
+        participants: owner === "JOINT" ? members.map((m) => ({ userId: m.userId })) : [{ userId: owner }],
+      };
+      return computeSplit(total, rule);
+    } catch {
+      return null;
+    }
+  })();
+  const splitError = total > 0 && !dues ? "「誰付多少」目前算不出來：比例要剛好 100%、金額要剛好等於應付總額。" : null;
+
+  /** 一鍵把明細品項的「誰的」換算成金額。 */
+  const fillFromItems = () => {
+    const per = new Map<string, number>(members.map((m) => [m.userId, 0]));
+    let joint = 0;
+    for (const it of items) {
+      const amount = lineTotal(it);
+      if (it.ownerId !== "JOINT" && per.has(it.ownerId)) per.set(it.ownerId, (per.get(it.ownerId) ?? 0) + amount);
+      else joint += amount;
+    }
+    // 運費與共同品項一起平分
+    const shared = joint + (parseAmount(ship) ?? 0);
+    const half = Math.floor(shared / members.length);
+    members.forEach((m, i) => per.set(m.userId, (per.get(m.userId) ?? 0) + half + (i === 0 ? shared - half * members.length : 0)));
+    setAmounts(Object.fromEntries(members.map((m) => [m.userId, toInputString(per.get(m.userId) ?? 0)])));
+    setMode("AMOUNT");
+  };
+
+  const extra = JSON.stringify({
+    items: items
+      .filter((it) => it.name.trim() && (parseAmount(it.unitAmount) ?? 0) > 0)
+      .map((it) => ({
+        name: it.name.trim(),
+        unitAmount: parseAmount(it.unitAmount) ?? 0,
+        qty: Number(it.qty) || 1,
+        ownerId: it.ownerId === "JOINT" ? null : it.ownerId,
+      })),
+    splitRule,
+  });
 
   return (
     <ActionForm action={action} className="space-y-4">
       {values.id && <input type="hidden" name="id" value={values.id} />}
+      <input type="hidden" name="extra" value={extra} />
       <Field label="圖示"><IconPicker options={PREORDER_ICONS} defaultValue={values.emoji} /></Field>
       <Field label="品名"><Input name="name" required maxLength={40} defaultValue={values.name} placeholder="例如：Switch 2 主機" /></Field>
       <Field label="賣家（選填）"><Input name="seller" maxLength={40} defaultValue={values.seller} placeholder="例如：博客來" /></Field>
+
       <div className="grid grid-cols-2 gap-3">
-        <Field label="商品金額"><Input name="itemAmount" inputMode="decimal" required value={item} onChange={(e) => setItem(e.target.value)} placeholder="13000" /></Field>
+        <Field label="商品金額" hint={hasItems ? "由明細品項自動加總" : undefined}>
+          <Input
+            name="itemAmount"
+            inputMode="decimal"
+            required={!hasItems}
+            readOnly={hasItems}
+            value={hasItems ? toInputString(itemsSum) : item}
+            onChange={(e) => setItem(e.target.value)}
+            placeholder="13000"
+            /* read-only 是 pseudo-class，優先權比 inputClass 的 bg-white 高，才蓋得掉 */
+            className="read-only:bg-stone-100 read-only:text-stone-500"
+          />
+        </Field>
         <Field label="運費（選填）"><Input name="shipping" inputMode="decimal" value={ship} onChange={(e) => setShip(e.target.value)} placeholder="150" /></Field>
       </div>
       {total > 0 && <p className="-mt-1 text-xs text-stone-500">應付總額 <span className="tnum font-semibold text-stone-700">{formatMoney(total)}</span></p>}
+
+      {/* ── 明細品項：一張單裡有什麼。有品項時商品金額改成它們的加總 ── */}
+      <div className="rounded-2xl bg-stone-100/70 p-3.5" data-testid="preorder-items">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-semibold text-stone-500">明細品項（選填）</p>
+          <button type="button" onClick={() => setItems((p) => [...p, blankItem()])} className="text-sm font-semibold text-brand-600" data-testid="add-item">
+            ＋ 新增品項
+          </button>
+        </div>
+        {!hasItems ? (
+          <p className="text-xs leading-relaxed text-stone-500">
+            一張單裡有好幾樣東西時可以列出來。加了品項之後，商品金額就改由品項自動加總。
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {items.map((it, i) => (
+              <div key={i} className="rounded-xl bg-white p-2.5 shadow-xs" data-testid="preorder-item-row">
+                <div className="flex items-center gap-2">
+                  <Input
+                    aria-label={`品項 ${i + 1} 名稱`}
+                    value={it.name}
+                    maxLength={40}
+                    onChange={(e) => setItemAt(i, { name: e.target.value })}
+                    placeholder="例如：主機"
+                    className="h-10 flex-1"
+                  />
+                  <button
+                    type="button"
+                    aria-label={`刪除品項 ${i + 1}`}
+                    onClick={() => setItems((p) => p.filter((_, j) => j !== i))}
+                    className="shrink-0 rounded-lg px-2 py-2 text-stone-400 active:bg-stone-100"
+                  >
+                    <ArtIcon name="trash" size={16} />
+                  </button>
+                </div>
+                <div className="mt-2 grid grid-cols-[1fr_4.5rem_1fr] gap-2">
+                  <Input
+                    aria-label={`品項 ${i + 1} 單價`}
+                    inputMode="decimal"
+                    value={it.unitAmount}
+                    onChange={(e) => setItemAt(i, { unitAmount: e.target.value })}
+                    placeholder="單價"
+                    className="h-10"
+                  />
+                  <Input
+                    aria-label={`品項 ${i + 1} 數量`}
+                    inputMode="numeric"
+                    value={it.qty}
+                    onChange={(e) => setItemAt(i, { qty: e.target.value.replace(/[^\d]/g, "") })}
+                    placeholder="1"
+                    className="h-10 text-center"
+                  />
+                  {members.length > 1 ? (
+                    <Select aria-label={`品項 ${i + 1} 誰的`} value={it.ownerId} onChange={(e) => setItemAt(i, { ownerId: e.target.value })} className="h-10">
+                      <option value="JOINT">共同</option>
+                      {members.map((m) => <option key={m.userId} value={m.userId}>{m.nickname}</option>)}
+                    </Select>
+                  ) : <div />}
+                </div>
+                <p className="mt-1.5 text-right text-xs text-stone-500">
+                  小計 <span className="tnum font-semibold text-stone-700">{formatMoney(lineTotal(it))}</span>
+                </p>
+              </div>
+            ))}
+            <p className="text-right text-xs text-stone-500">
+              品項合計 <span className="tnum font-semibold text-stone-700">{formatMoney(itemsSum)}</span>
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <Field label="預計到貨（選填）"><DateInput name="expectedOn"  defaultValue={values.expectedOn} /></Field>
         <Field label="誰的">
-          <Select name="ownerId" defaultValue={values.ownerId}>
+          <Select name="ownerId" value={owner} onChange={(e) => setOwner(e.target.value)}>
             <option value="JOINT">共同</option>
             {members.map((m) => <option key={m.userId} value={m.userId}>{m.nickname}</option>)}
           </Select>
         </Field>
       </div>
+
+      {/* ── 誰付多少：沿用記帳那一套分帳規則，不是寫死一人一半 ── */}
+      {members.length > 1 && (
+        <div className="rounded-2xl bg-stone-100/70 p-3.5" data-testid="preorder-split">
+          <p className="mb-2 text-xs font-semibold text-stone-500">誰付多少</p>
+          <div className="grid grid-cols-4 gap-1 rounded-2xl bg-stone-200/60 p-1">
+            {([["OWNER", "依「誰的」"], ["EQUAL", "平分"], ["RATIO", "比例"], ["AMOUNT", "金額"]] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setMode(k)}
+                className={cx("h-10 rounded-xl text-[13px] font-semibold transition", mode === k ? "bg-white text-stone-800 shadow-sm" : "text-stone-500")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {mode === "RATIO" && (
+            <div className="mt-3">
+              <Field label={`${members[0].nickname} 負擔的比例（%）`}>
+                <Input inputMode="decimal" value={ratio} onChange={(e) => setRatio(e.target.value.replace(/[^\d.]/g, ""))} aria-label="比例" />
+              </Field>
+              <p className="mt-1 text-xs text-stone-500">{members[1].nickname} 自動是 {Math.round((100 - (Number(ratio) || 0)) * 100) / 100}%</p>
+            </div>
+          )}
+
+          {mode === "AMOUNT" && (
+            <div className="mt-3 space-y-2">
+              {members.map((m) => (
+                <Field key={m.userId} label={`${m.nickname} 負擔`}>
+                  <Input
+                    inputMode="decimal"
+                    aria-label={`${m.nickname} 負擔金額`}
+                    value={amounts[m.userId] ?? ""}
+                    onChange={(e) => setAmounts((p) => ({ ...p, [m.userId]: e.target.value }))}
+                  />
+                </Field>
+              ))}
+              {hasItems && (
+                <button type="button" onClick={fillFromItems} className="text-xs text-brand-600 underline underline-offset-2" data-testid="fill-from-items">
+                  依明細品項的「誰的」自動帶入金額
+                </button>
+              )}
+            </div>
+          )}
+
+          {dues && (
+            <div className="mt-3 space-y-1 border-t border-line pt-2.5 text-xs" data-testid="preorder-due-preview">
+              {dues.map((l) => (
+                <div key={l.userId} className="flex justify-between" data-due={l.userId}>
+                  <span className="text-stone-600">{members.find((m) => m.userId === l.userId)?.nickname ?? "已離開的成員"}</span>
+                  <span className="tnum font-semibold text-stone-800">{formatMoney(l.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {splitError && <p className="mt-2 text-xs text-red-600" role="alert">{splitError}</p>}
+          <p className="mt-2 text-[11px] leading-relaxed text-stone-400">
+            這裡設定的是「應該由誰負擔多少」。實際每次付款要誰出錢、怎麼分，還是在記帳時決定。
+          </p>
+        </div>
+      )}
+
       <Field label="備註（選填）">
         <textarea name="note" maxLength={200} rows={2} defaultValue={values.note} className={cx(inputClass, "h-auto py-2.5")} />
       </Field>
@@ -56,13 +310,13 @@ export function PreorderForm({ values, members }: { values: PreorderFormValues; 
       </p>
       <ErrorText>{state?.error}</ErrorText>
       {state?.ok && <p className="text-sm text-brand-700">{state.ok}</p>}
-      <Button className="w-full" disabled={pending}>{pending ? "儲存中…" : values.id ? "儲存" : "建立預購"}</Button>
+      <Button className="w-full" disabled={pending || !!splitError}>{pending ? "儲存中…" : values.id ? "儲存" : "建立預購"}</Button>
     </ActionForm>
   );
 }
 
 /** 記錄一次付款。金額自己填（訂金、尾款、分幾次都可以）。 */
-export function PayPreorderForm({ id, remaining, today, accounts, categories, members, meId }: {
+export function PayPreorderForm({ id, remaining, today, accounts, categories, members, meId, dues }: {
   id: string;
   remaining: number;
   today: string;
@@ -70,11 +324,13 @@ export function PayPreorderForm({ id, remaining, today, accounts, categories, me
   categories: Array<{ id: string; name: string }>;
   members: Array<{ userId: string; nickname: string }>;
   meId: string;
+  /** 這張單每個人「應負擔」多少，用來提供「依預購分法」 */
+  dues: Array<{ userId: string; due: number }>;
 }) {
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [categoryId, setCategoryId] = useState("");
-  const [who, setWho] = useState<"ME" | "EQUAL">("ME");
+  const [who, setWho] = useState<"ME" | "EQUAL" | "RULE">("ME");
   const [occurredOn, setOccurredOn] = useState(today);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   // 記錄成功後清掉金額並換一個 requestId，連按兩下不會記成兩筆
@@ -84,6 +340,20 @@ export function PayPreorderForm({ id, remaining, today, accounts, categories, me
     return r;
   }, undefined);
   const value = parseAmount(amount) ?? 0;
+  /** 這次付款怎麼分。「依預購分法」= 按每個人應負擔的比例分這一筆。 */
+  const dueTotal = dues.reduce((a, d) => a + d.due, 0);
+  const canUseRule = members.length > 1 && dueTotal > 0 && dues.some((d) => d.due > 0 && d.due < dueTotal);
+  function splitOf() {
+    if (who === "RULE" && canUseRule) {
+      // 換成比例：AMOUNT 規則是綁在應付總額上的，套到別的金額會對不起來
+      const pct = dues.map((d) => Math.round((d.due / dueTotal) * 10000) / 100);
+      const fixed = pct.slice(0, -1);
+      const last = Math.round((100 - fixed.reduce((a, b) => a + b, 0)) * 100) / 100;
+      return { method: "RATIO", participants: dues.map((d, i) => ({ userId: d.userId, value: i === dues.length - 1 ? last : pct[i] })) };
+    }
+    if (who === "EQUAL" && members.length > 1) return { method: "EQUAL", participants: members.map((m) => ({ userId: m.userId })) };
+    return { method: "FULL", participants: [{ userId: meId }] };
+  }
 
   const payload = JSON.stringify({
     amount: value,
@@ -92,10 +362,7 @@ export function PayPreorderForm({ id, remaining, today, accounts, categories, me
     title: "預購付款",
     note: "",
     occurredOn,
-    split:
-      who === "EQUAL" && members.length > 1
-        ? { method: "EQUAL", participants: members.map((m) => ({ userId: m.userId })) }
-        : { method: "FULL", participants: [{ userId: meId }] },
+    split: splitOf(),
   });
 
   return (
@@ -130,10 +397,10 @@ export function PayPreorderForm({ id, remaining, today, accounts, categories, me
       </div>
       {members.length > 1 && (
         <Field label="怎麼分">
-          <div className="grid grid-cols-2 rounded-2xl bg-stone-200/60 p-1">
-            {([["ME", "我自己付"], ["EQUAL", "兩人平分"]] as const).map(([k, label]) => (
-              <button key={k} type="button" onClick={() => setWho(k)}
-                className={cx("h-10 rounded-xl text-sm font-semibold transition", who === k ? "bg-white text-stone-800 shadow-sm" : "text-stone-500")}>
+          <div className={cx("grid rounded-2xl bg-stone-200/60 p-1", canUseRule ? "grid-cols-3" : "grid-cols-2")}>
+            {([["ME", "我自己付"], ["EQUAL", "兩人平分"], ...(canUseRule ? [["RULE", "依預購分法"] as const] : [])] as const).map(([k, label]) => (
+              <button key={k} type="button" onClick={() => setWho(k as typeof who)}
+                className={cx("h-10 rounded-xl text-[13px] font-semibold transition", who === k ? "bg-white text-stone-800 shadow-sm" : "text-stone-500")}>
                 {label}
               </button>
             ))}

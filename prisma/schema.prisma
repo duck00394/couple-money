@@ -27,9 +27,10 @@ model User {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime? // 刪除帳號 = 匿名化，不刪交易
 
-  sessions    Session[]
-  memberships BookMember[]
-  preorders   Preorder[]   @relation("PreorderOwner")
+  sessions      Session[]
+  memberships   BookMember[]
+  preorders     Preorder[]     @relation("PreorderOwner")
+  preorderItems PreorderItem[] @relation("PreorderItemOwner")
 }
 
 model Session {
@@ -804,6 +805,8 @@ model Preorder {
   /// 誰的：null = 共同
   ownerId     String?
   owner       User?     @relation("PreorderOwner", fields: [ownerId], references: [id])
+  /// 誰付多少（沿用既有的分帳規則引擎；null = 舊行為：依 ownerId，共同就平分）
+  splitRule   Json?
   note        String?
   /// 取消時間。取消不會自動產生任何金流，實際退款請走既有的退款流程。
   cancelledAt DateTime?
@@ -813,6 +816,24 @@ model Preorder {
   deletedAt   DateTime?
 
   payments Transaction[]
+  items    PreorderItem[]
 
   @@index([bookId, cancelledAt, expectedOn])
+}
+
+/// 預購的明細品項。有品項時，Preorder.itemAmount = Σ(unitAmount × qty)。
+model PreorderItem {
+  id         String   @id @default(cuid())
+  preorderId String
+  preorder   Preorder @relation(fields: [preorderId], references: [id], onDelete: Cascade)
+  name       String
+  /// 單價（最小單位，$1 = 100）
+  unitAmount Int
+  qty        Int      @default(1)
+  /// 這件是誰的：null = 共同。只用來一鍵帶入「誰付多少」，不直接決定金額
+  ownerId    String?
+  owner      User?    @relation("PreorderItemOwner", fields: [ownerId], references: [id])
+  sortOrder  Int      @default(0)
+
+  @@index([preorderId])
 }
