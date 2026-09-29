@@ -103,3 +103,82 @@ describe("V8：預購誰付多少", () => {
     ]);
   });
 });
+
+/**
+ * V11：「依『誰的』」必須真的依每個品項的「誰的」。
+ *
+ * 之前的 bug：沒有存分帳規則時，duesOf() 完全不看明細品項，一律照整張單的
+ * ownerId 分 —— 整張單是「共同」就變成一人一半，畫面上標在每件東西上的「誰的」形同虛設。
+ */
+describe("V11：依「誰的」要看明細品項", () => {
+  const items = [
+    item("卡哇伊的東西", $(3000), 1, A),
+    item("大富翁的東西", $(1000), 1, B),
+  ];
+
+  it("1. 整張單是共同、但每件都標了人 → 各自算各自的，不是平分", () => {
+    const d = duesOf($(4000), null, null, [A, B], items);
+    assert.equal(d.get(A), $(3000));
+    assert.equal(d.get(B), $(1000));
+  });
+
+  it("2. 運費與沒標「誰的」的品項才進共同池平分", () => {
+    // 品項 4000 + 共同品項 600 + 運費 400 → 共同池 1000，一人 500
+    const withJoint = [...items, item("一起用的", $(600))];
+    const d = duesOf($(5000), null, null, [A, B], withJoint);
+    assert.equal(d.get(A), $(3500));
+    assert.equal(d.get(B), $(1500));
+    assert.equal(d.get(A)! + d.get(B)!, $(5000), "加總一定等於總額");
+  });
+
+  it("3. 標「共同」的品項永遠平分，不會因為整張單掛在誰名下就變成誰的", () => {
+    const withJoint = [...items, item("共同的", $(600))];
+    const d = duesOf($(5000), null, A, [A, B], withJoint);
+    assert.equal(d.get(A), $(3500), "3000 + 共同池 1000 的一半");
+    assert.equal(d.get(B), $(1500), "使用者在那一列選了共同，不該被上面的「誰的」推翻");
+  });
+
+  it("3b. 品項全部都是「共同」時才退回看整張單的「誰的」", () => {
+    const allJoint = [item("一起用的", $(4000))];
+    assert.deepEqual([...duesOf($(4000), null, A, [A, B], allJoint).values()], [$(4000), 0], "這張是小艾的");
+    assert.deepEqual([...duesOf($(4000), null, null, [A, B], allJoint).values()], [$(2000), $(2000)], "共同就平分");
+  });
+
+  it("4. 有存分帳規則時，規則優先於品項的「誰的」", () => {
+    const equal: SplitRule = { method: "EQUAL", participants: [{ userId: A }, { userId: B }] };
+    const d = duesOf($(4000), equal, null, [A, B], items);
+    assert.deepEqual([...d.values()], [$(2000), $(2000)], "使用者自己選了平分就照平分");
+  });
+
+  it("5. 沒有明細品項時維持舊行為：共同平分、標了人就算他的", () => {
+    assert.deepEqual([...duesOf($(10000), null, null, [A, B], []).values()], [$(5000), $(5000)]);
+    assert.deepEqual([...duesOf($(10000), null, A, [A, B], []).values()], [$(10000), 0]);
+  });
+
+  it("6. 品項全部標給已經離開的人 → 當成沒人被標到，錢不會憑空消失", () => {
+    const ghost = [item("前任的", $(1000), 1, "ghost")];
+    const d = duesOf($(1000), null, null, [A, B], ghost);
+    assert.equal(d.get(A)! + d.get(B)!, $(1000));
+  });
+
+  it("7. 奇數金額不會因為四捨五入漏掉 1 分錢", () => {
+    for (const total of [1, 3, 101, 999, 100001]) {
+      const one = [item("共同的", total)];
+      const d = duesOf(total, null, null, [A, B], one);
+      assert.equal(d.get(A)! + d.get(B)!, total, `總額 ${total}`);
+    }
+  });
+
+  it("8. sharesOf 也吃得到品項：應負擔跟著品項的「誰的」走", () => {
+    const borne = new Map<string, number>([[A, 0], [B, 0]]);
+    const s = sharesOf($(4000), null, null, [A, B], borne, items);
+    assert.equal(s.find((x) => x.userId === A)!.due, $(3000));
+    assert.equal(s.find((x) => x.userId === B)!.due, $(1000));
+  });
+
+  it("9. duesFromItems 的運費會進共同池", () => {
+    const d = duesFromItems(items, [A, B], { shipping: $(1000) });
+    assert.equal(d.get(A), $(3500));
+    assert.equal(d.get(B), $(1500));
+  });
+});

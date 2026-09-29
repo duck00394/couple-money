@@ -8,6 +8,7 @@ import { IconPicker } from "./EmojiPicker";
 import { Button, cx, DateInput, ErrorText, Field, Input, Select, inputClass } from "./ui";
 import { ArtIcon } from "./ArtIcon";
 import { computeSplit, type SplitRule } from "@/server/domain/split";
+import { duesFromItems, duesOf } from "@/server/domain/preorder";
 
 const PREORDER_ICONS = ["package", "gamepad", "shirt", "smartphone", "book", "gift", "cake", "sofa", "laptop", "plane", "shopping-bag", "tag"] as const;
 
@@ -96,34 +97,46 @@ export function PreorderForm({ values, members, categories, alreadyPaid = 0 }: {
     return { method: "AMOUNT", participants: members.map((m) => ({ userId: m.userId, value: parseAmount(amounts[m.userId] ?? "") ?? 0 })) };
   })();
 
-  /** 畫面上「每個人應負擔多少」的即時預覽。 */
+  /** 送出後會存進資料庫的明細品項（畫面預覽與真正儲存的是同一份資料）。 */
+  const itemLines = items
+    .filter((it) => (parseAmount(it.unitAmount) ?? 0) > 0)
+    .map((it) => ({
+      name: it.name.trim(),
+      unitAmount: parseAmount(it.unitAmount) ?? 0,
+      qty: Number(it.qty) || 1,
+      ownerId: it.ownerId === "JOINT" ? null : it.ownerId,
+    }));
+
+  /**
+   * 畫面上「每個人應負擔多少」的即時預覽。
+   * 直接叫 domain 的 duesOf()，跟存進資料庫之後後端算出來的是同一個函式，
+   * 所以「依『誰的』」在表單上看到的跟詳細頁看到的一定一樣。
+   */
   const dues = (() => {
     if (total <= 0) return null;
     try {
-      const rule: SplitRule = splitRule ?? {
-        method: owner === "JOINT" ? "EQUAL" : "FULL",
-        participants: owner === "JOINT" ? members.map((m) => ({ userId: m.userId })) : [{ userId: owner }],
-      };
-      return computeSplit(total, rule);
+      // 使用者自己設的規則（平分／比例／金額）算不出來時要擋住送出，
+      // 不可以偷偷退回別的分法 —— duesOf() 為了畫面不爆掉會自動退回，這裡不能用它。
+      if (splitRule) {
+        const lines = computeSplit(total, splitRule);
+        return lines.reduce((acc, l) => acc + l.amount, 0) === total ? lines : null;
+      }
+      // 「依『誰的』」走 domain，跟存進資料庫之後後端算的是同一個函式
+      const m = duesOf(total, null, owner === "JOINT" ? null : owner, members.map((x) => x.userId), itemLines);
+      return [...m.entries()].map(([userId, amount]) => ({ userId, amount }));
     } catch {
       return null;
     }
   })();
   const splitError = total > 0 && !dues ? "「誰付多少」目前算不出來：比例要剛好 100%、金額要剛好等於應付總額。" : null;
 
-  /** 一鍵把明細品項的「誰的」換算成金額。 */
+  /**
+   * 一鍵把明細品項的「誰的」換算成金額。
+   * 用的是跟「依『誰的』」同一個 domain 函式，所以按下去之後數字不會跳動——
+   * 只是把同一份分法固定成金額，之後可以自己微調。
+   */
   const fillFromItems = () => {
-    const per = new Map<string, number>(members.map((m) => [m.userId, 0]));
-    let joint = 0;
-    for (const it of items) {
-      const amount = lineTotal(it);
-      if (it.ownerId !== "JOINT" && per.has(it.ownerId)) per.set(it.ownerId, (per.get(it.ownerId) ?? 0) + amount);
-      else joint += amount;
-    }
-    // 運費與共同品項一起平分
-    const shared = joint + (parseAmount(ship) ?? 0);
-    const half = Math.floor(shared / members.length);
-    members.forEach((m, i) => per.set(m.userId, (per.get(m.userId) ?? 0) + half + (i === 0 ? shared - half * members.length : 0)));
+    const per = duesFromItems(itemLines, members.map((m) => m.userId), { shipping: parseAmount(ship) ?? 0 });
     setAmounts(Object.fromEntries(members.map((m) => [m.userId, toInputString(per.get(m.userId) ?? 0)])));
     setMode("AMOUNT");
   };

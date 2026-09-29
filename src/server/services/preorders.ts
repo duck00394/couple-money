@@ -273,6 +273,8 @@ async function withMoney(
         r.ownerId,
         memberIds,
         borne,
+        // 沒有存分帳規則時，「依『誰的』」要看每個品項標的是誰，不是一律平分
+        r.items.map((it) => ({ name: it.name, unitAmount: it.unitAmount, qty: it.qty, ownerId: it.ownerId })),
       ),
       state: stateOf(r.cancelledAt, money),
       daysLeft: daysUntil(expectedOn, today),

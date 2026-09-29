@@ -93,27 +93,39 @@ export const lineTotal = (item: PreorderItemLine) => item.unitAmount * item.qty;
 export const itemsTotal = (items: PreorderItemLine[]) => items.reduce((a, i) => a + lineTotal(i), 0);
 
 /**
- * 由明細品項推出「誰付多少」的金額分配。
+ * 由明細品項推出「誰付多少」的金額分配 —— 這就是「依『誰的』」的定義。
  *
- * 每件東西標了「誰的」就算誰的，標共同的那幾件再平分。
- * 這只是給畫面上「依明細品項帶入」用的捷徑——真正生效的仍然是訂單上存的分帳規則，
- * 使用者隨時可以自己改。
+ * 每件東西標了「誰的」就算誰的；標「共同」的那幾件跟運費一起平分。
+ * 「共同」永遠是平分，不會因為整張單掛在誰名下就變成誰的 ——
+ * 使用者已經在那一列明確選了共同，不該被上面的欄位推翻。
+ *
+ * 這是全專案唯一一份「依『誰的』怎麼分」的定義：畫面上的即時預覽、
+ * 「依明細品項帶入金額」的捷徑、以及 duesOf() 算出來的實際應負擔，全部走這裡，
+ * 不然畫面顯示的跟真正生效的會是兩件事。
  */
-export function duesFromItems(items: PreorderItemLine[], memberIds: string[]): Map<string, number> {
+export function duesFromItems(
+  items: PreorderItemLine[],
+  memberIds: string[],
+  opts: { shipping?: number } = {},
+): Map<string, number> {
   const out = new Map<string, number>(memberIds.map((id) => [id, 0]));
   const add = (id: string, n: number) => out.set(id, (out.get(id) ?? 0) + n);
-  let joint = 0;
+  let joint = opts.shipping ?? 0;
   for (const item of items) {
     const amount = lineTotal(item);
     if (item.ownerId && out.has(item.ownerId)) add(item.ownerId, amount);
     else joint += amount;
   }
-  if (joint > 0 && memberIds.length > 0) {
+  if (joint !== 0 && memberIds.length > 0) {
     const parts = allocate(joint, memberIds.map(() => 1));
     memberIds.forEach((id, i) => add(id, parts[i]));
   }
   return out;
 }
+
+/** 這批品項裡有沒有人真的被標到（標給已離開的人不算）。 */
+export const hasOwnedItem = (items: PreorderItemLine[], memberIds: string[]) =>
+  items.some((it) => it.ownerId !== null && memberIds.includes(it.ownerId));
 
 /* ───────────────────── 每個人還需付多少 ───────────────────── */
 
@@ -132,17 +144,22 @@ export interface PreorderShare {
 /**
  * 「誰付多少」：每個人應負擔的金額。
  *
- * 有存分帳規則就用**既有的** `computeSplit()`（平分／比例／金額／一人全付），
- * 跟記帳的分帳走同一套引擎，這裡不自己算。
- * 沒存規則就是舊行為：「我的／對方的」算那個人的、「共同」平分。
+ * 三段式，由明確到模糊：
+ *   1. 有存分帳規則（平分／比例／金額／一人全付）→ 用**既有的** `computeSplit()`，
+ *      跟記帳的分帳走同一套引擎，這裡不自己算。
+ *   2. 沒存規則、但品項裡有人被標到 → 這就是「依『誰的』」：每件東西算它標的那個人的，
+ *      標共同的品項與運費平分。**不是一律平分**。
+ *   3. 沒有品項、或品項全部都是「共同」→ 只能看整張單的「誰的」：
+ *      指定了就算他的、共同就平分。
  *
- * 規則壞掉（例如成員換了、金額對不起來）時退回舊行為，寧可保守，也不要讓畫面爆掉。
+ * 規則壞掉（例如成員換了、金額對不起來）時退回下一段，寧可保守，也不要讓畫面爆掉。
  */
 export function duesOf(
   total: number,
   splitRule: SplitRule | null,
   ownerId: string | null,
   memberIds: string[],
+  items: PreorderItemLine[] = [],
 ): Map<string, number> {
   const ids = memberIds.length > 0 ? memberIds : ownerId ? [ownerId] : [];
   if (ids.length === 0) return new Map();
@@ -159,6 +176,18 @@ export function duesOf(
       } catch {
         // 規則算不出來就往下走，用舊行為
       }
+    }
+  }
+
+  // 有人被標到的品項 → 依品項的「誰的」分，運費與共同品項平分。
+  // 全部都是「共同」時就沒有東西可依，退回下面看整張單的「誰的」，
+  // 否則一張標明「這是小艾的」的單會因為品項都沒標而莫名其妙變成平分。
+  if (hasOwnedItem(items, ids)) {
+    const goods = itemsTotal(items);
+    const shipping = Math.max(0, total - goods);
+    if (goods + shipping === total) {
+      const dues = duesFromItems(items, ids, { shipping });
+      return new Map(ids.map((id) => [id, dues.get(id) ?? 0]));
     }
   }
 
@@ -181,8 +210,9 @@ export function sharesOf(
   ownerId: string | null,
   memberIds: string[],
   borneByUser: Map<string, number>,
+  items: PreorderItemLine[] = [],
 ): PreorderShare[] {
-  const dues = duesOf(total, splitRule, ownerId, memberIds);
+  const dues = duesOf(total, splitRule, ownerId, memberIds, items);
   return [...dues.entries()].map(([userId, due]) => {
     const borne = borneByUser.get(userId) ?? 0;
     const diff = due - borne;
