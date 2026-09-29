@@ -87,7 +87,7 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
     );
   }
 
-  const options = await loadTxFormOptions(ctx, { keepCategoryId: tx.categoryId });
+  const options = await loadTxFormOptions(ctx, { keepCategoryId: tx.categoryId, keepPreorderId: tx.preorderId });
   const payAccountId = tx.payments[0]?.accountId ?? "";
   // 已停用的帳戶仍要能在編輯時顯示
   if (payAccountId && !options.accounts.some((a) => a.id === payAccountId)) {
@@ -150,6 +150,7 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
           fundId: tx.fundEntry && !tx.fundEntry.deletedAt ? tx.fundEntry.fundId : null,
           fundAccountId: tx.fundEntry && !tx.fundEntry.deletedAt ? tx.fundEntry.accountId : null,
           tags: tx.tags.map((t) => t.tag.name),
+          preorderId: tx.preorderId,
         }}
       />
     </>

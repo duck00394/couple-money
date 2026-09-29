@@ -21,6 +21,7 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
     .filter((a) => a.isActive && (a.ownerId === null || a.ownerId === ctx.me.userId))
     .map((a) => ({ id: a.id, label: a.ownerId === null ? `共同・${a.name}` : a.name }));
   const who = p.ownerId === null ? "共同" : p.ownerId === ctx.me.userId ? "我" : ctx.members.find((m) => m.userId === p.ownerId)?.nickname ?? "";
+  const who2 = (id: string) => (id === ctx.me.userId ? "我" : ctx.members.find((m) => m.userId === id)?.nickname ?? "已離開的成員");
   const progress = p.money.total > 0 ? p.money.paid / p.money.total : 0;
 
   return (
@@ -58,6 +59,22 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
               </div>
             </div>
             {p.money.overpaid > 0 && <p className="mt-2 text-xs text-amber-700">付款比應付總額多了 {formatMoney(p.money.overpaid)}，可以檢查看看是不是多記了一筆。</p>}
+
+            {/* 每個人還需付多少：應負擔由「誰的」決定，已負擔是每筆付款的分帳結果加總 */}
+            {p.shares.length > 0 && (
+              <div className="mt-3 space-y-1 border-t border-line pt-3 text-sm" data-testid="preorder-shares">
+                <p className="text-xs text-stone-500">每個人還需付</p>
+                {p.shares.map((sh) => (
+                  <div key={sh.userId} className="flex items-baseline justify-between" data-share={sh.userId}>
+                    <span className="text-stone-700">{who2(sh.userId)}</span>
+                    <span className="tnum text-stone-700">
+                      <span className="font-semibold text-stone-900">{formatMoney(sh.remaining)}</span>
+                      <span className="ml-1 text-[11px] text-stone-400">（應負擔 {formatMoney(sh.due)}・已負擔 {formatMoney(sh.borne)}）</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {p.note && <p className="mt-3 border-t border-line pt-3 text-sm text-stone-600">{p.note}</p>}
         </Card>
@@ -79,6 +96,9 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                 members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname }))}
                 meId={ctx.me.userId}
               />
+              <Link href={`/transactions/new?preorder=${p.id}`} className="mt-3 block text-center text-xs text-brand-600 underline underline-offset-2">
+                要選分類、標籤或從基金扣？用完整的記帳頁 →
+              </Link>
             </Card>
           </>
         ) : null}

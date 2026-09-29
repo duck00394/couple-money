@@ -24,6 +24,7 @@ import { iconText } from "./icon-text";
 import { uxAudit } from "./ux-audit";
 import { v5PreorderCalc } from "./v5-preorder-calc";
 import { v6HomeDebtTags } from "./v6-home-debt-tags";
+import { v7PreorderForm } from "./v7-preorder-form";
 
 /** 後續階段的流程依序接在 Phase 1 之後執行（兩人帳號延續使用）。 */
 const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
@@ -43,6 +44,7 @@ const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
   ["v4 daily", v4Daily],
   ["v5 preorder+calc", v5PreorderCalc],
   ["v6 home+debt+tags", v6HomeDebtTags],
+  ["v7 preorder in form", v7PreorderForm],
   ["icon text", async (a) => iconText(a)],
   ["ux audit", async (a) => uxAudit(a)],
 ];

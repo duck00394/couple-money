@@ -12,7 +12,7 @@
  */
 import { prisma } from "../db";
 import { assert } from "../domain/errors";
-import { moneyOf, stateOf, sortKey, daysUntil, type PreorderMoney, type PreorderState } from "../domain/preorder";
+import { moneyOf, sharesOf, stateOf, sortKey, daysUntil, type PreorderMoney, type PreorderShare, type PreorderState } from "../domain/preorder";
 import { MAX_AMOUNT } from "@/lib/money";
 import { dbDateToKey, keyToDbDate, toDateKey } from "@/lib/dates";
 import { toIconKey } from "@/lib/icons";
@@ -109,24 +109,42 @@ export interface PreorderView {
   ownerId: string | null;
   note: string | null;
   money: PreorderMoney;
+  /** 每個人應負擔／已負擔／還需付多少 */
+  shares: PreorderShare[];
   state: PreorderState;
   daysLeft: number | null;
   payments: Array<{ id: string; amount: number; occurredOn: string; title: string | null; refunded: number }>;
 }
 
 /** 把一批訂單加上「已付／待結」。金額一律由 Transaction 現算。 */
-async function withMoney(bookId: string, rows: Array<Awaited<ReturnType<typeof createPreorder>>>, today: string): Promise<PreorderView[]> {
+async function withMoney(
+  bookId: string,
+  memberIds: string[],
+  rows: Array<Awaited<ReturnType<typeof createPreorder>>>,
+  today: string,
+): Promise<PreorderView[]> {
   const ids = rows.map((r) => r.id);
   // 有效的付款：這張單底下沒被作廢的 EXPENSE
   const txs = ids.length
     ? await prisma.transaction.findMany({
         where: { bookId, preorderId: { in: ids }, type: "EXPENSE", status: "POSTED", deletedAt: null },
-        select: { id: true, preorderId: true, amount: true, occurredAt: true, title: true },
+        select: {
+          id: true, preorderId: true, amount: true, occurredAt: true, title: true,
+          // 「已負擔」直接用既有的分帳結果，預購這邊不另外發明一套分法
+          splits: { select: { userId: true, amount: true } },
+        },
         orderBy: { occurredAt: "asc" },
       })
     : [];
   // 退款沿用既有的計算，不自己重算
   const refunds = await refundedByTransaction(prisma, bookId, txs.map((t) => t.id));
+  // 退款的分帳（負數）也要算進「已負擔」：退了錢的人就少負擔
+  const refundSplits = txs.length
+    ? await prisma.transaction.findMany({
+        where: { bookId, type: "REFUND", status: "POSTED", deletedAt: null, relatedId: { in: txs.map((t) => t.id) } },
+        select: { relatedId: true, splits: { select: { userId: true, amount: true } } },
+      })
+    : [];
 
   return rows.map((r) => {
     const mine = txs.filter((t) => t.preorderId === r.id);
@@ -136,6 +154,13 @@ async function withMoney(bookId: string, rows: Array<Awaited<ReturnType<typeof c
     // 真的有退款時走既有的退款流程，退款會自己把已付降回去。
     const raw = moneyOf(r.itemAmount, r.shipping, gross, refunded);
     const money = r.cancelledAt ? { ...raw, remaining: 0 } : raw;
+    const borne = new Map<string, number>();
+    const add = (userId: string, amount: number) => borne.set(userId, (borne.get(userId) ?? 0) + amount);
+    for (const t of mine) for (const sp of t.splits) add(sp.userId, sp.amount);
+    for (const rf of refundSplits) {
+      if (!mine.some((t) => t.id === rf.relatedId)) continue;
+      for (const sp of rf.splits) add(sp.userId, sp.amount);
+    }
     const expectedOn = r.expectedOn ? dbDateToKey(r.expectedOn) : null;
     return {
       id: r.id,
@@ -148,6 +173,8 @@ async function withMoney(bookId: string, rows: Array<Awaited<ReturnType<typeof c
       ownerId: r.ownerId,
       note: r.note,
       money,
+      // 取消的單子不用再付了，每個人的「還需付」也一起歸零
+      shares: sharesOf(r.cancelledAt ? 0 : money.total, r.ownerId, memberIds, borne),
       state: stateOf(r.cancelledAt, money),
       daysLeft: daysUntil(expectedOn, today),
       payments: mine.map((t) => ({
@@ -164,7 +191,7 @@ async function withMoney(bookId: string, rows: Array<Awaited<ReturnType<typeof c
 export async function listPreorders(ctx: BookContext, opts: { today?: string } = {}): Promise<PreorderView[]> {
   const today = opts.today ?? toDateKey(new Date());
   const rows = await prisma.preorder.findMany({ where: { bookId: ctx.book.id, deletedAt: null } });
-  const views = await withMoney(ctx.book.id, rows, today);
+  const views = await withMoney(ctx.book.id, ctx.members.map((m) => m.userId), rows, today);
   return views.sort((a, b) => {
     const ka = sortKey(a.state, a.expectedOn, a.daysLeft);
     const kb = sortKey(b.state, b.expectedOn, b.daysLeft);
@@ -176,7 +203,7 @@ export async function getPreorder(ctx: BookContext, id: string, opts: { today?: 
   const today = opts.today ?? toDateKey(new Date());
   const row = await prisma.preorder.findFirst({ where: { id, bookId: ctx.book.id, deletedAt: null } });
   if (!row) return null;
-  return (await withMoney(ctx.book.id, [row], today))[0];
+  return (await withMoney(ctx.book.id, ctx.members.map((m) => m.userId), [row], today))[0];
 }
 
 /** 首頁提醒用：還在進行中、還有待結款的訂單。 */

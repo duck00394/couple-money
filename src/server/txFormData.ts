@@ -4,6 +4,7 @@ import { toDateKey } from "@/lib/dates";
 import type { BookContext } from "./services/books";
 import { ACCOUNT_TYPE_ICON, listAccounts, listCategories } from "./services/ledger";
 import { allocationsForForm, listFunds } from "./services/funds";
+import { listPreorders } from "./services/preorders";
 import { rankTags } from "./domain/tags";
 
 /** 帳戶選單顯示名稱（與記帳表單一致）：我的・玉山卡、共同帳戶。下拉選單是純文字，圖示在列表才顯示。 */
@@ -16,8 +17,8 @@ export function accountOptionLabel(ctx: BookContext, a: { name: string; type: Ac
  * 記帳表單需要的選項（帳戶、分類、成員）。
  * `keepCategoryId`：編輯舊紀錄時，那筆原本的分類即使已停用也要留在選單裡。
  */
-export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId?: string | null } = {}) {
-  const [accounts, categories, funds, allocations, tags] = await Promise.all([listAccounts(ctx), listCategories(ctx, { keepId: opts.keepCategoryId }), listFunds(ctx, { includeArchived: true }), allocationsForForm(ctx), recentTags(ctx)]);
+export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId?: string | null; keepPreorderId?: string | null } = {}) {
+  const [accounts, categories, funds, allocations, tags, preorders] = await Promise.all([listAccounts(ctx), listCategories(ctx, { keepId: opts.keepCategoryId }), listFunds(ctx, { includeArchived: true }), allocationsForForm(ctx), recentTags(ctx), payablePreorders(ctx, opts.keepPreorderId)]);
   return {
     me: { userId: ctx.me.userId, nickname: ctx.me.nickname },
     partner: ctx.partner ? { userId: ctx.partner.userId, nickname: ctx.partner.nickname } : null,
@@ -29,6 +30,8 @@ export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId
     allocations,
     /** 最近用過的標籤，直接點就能加，不用重打 */
     tagOptions: tags,
+    /** 還沒付完的預購，記帳時可以直接選 */
+    preorders,
   };
 }
 
@@ -79,4 +82,28 @@ export async function recentTags(ctx: BookContext, take = 12): Promise<string[]>
     take: 200, // 只看最近這些，不用掃整本帳
   });
   return rankTags(rows.map((r) => ({ tags: r.tags.map((t) => t.tag.name) })), take);
+}
+
+
+/**
+ * 記帳表單可以選的預購：還在進行中（還有待結款）的那幾張。
+ *
+ * `keepId`：編輯舊紀錄時，那張單就算已經結清也要留在選單裡，不然一存檔就掉關聯。
+ * 金額全部沿用 `listPreorders()` 現算的結果，這裡不另外算任何錢。
+ */
+export async function payablePreorders(ctx: BookContext, keepId?: string | null) {
+  const list = await listPreorders(ctx);
+  return list
+    .filter((p) => p.state === "ACTIVE" || (keepId && p.id === keepId))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      emoji: p.emoji,
+      ownerId: p.ownerId,
+      total: p.money.total,
+      paid: p.money.paid,
+      remaining: p.money.remaining,
+      state: p.state,
+      shares: p.shares.map((sh) => ({ userId: sh.userId, due: sh.due, borne: sh.borne, remaining: sh.remaining })),
+    }));
 }

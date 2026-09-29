@@ -28,6 +28,7 @@ export interface TxInitial {
   fundId: string | null;
   fundAccountId: string | null;
   tags: string[];
+  preorderId?: string | null;
 }
 
 const METHODS: Array<{ id: Exclude<SplitMethod, "SHARES">; label: string }> = [
@@ -51,8 +52,21 @@ export function TransactionForm(props: {
   presets?: Array<{ title: string; categoryId: string | null; accountId: string; splitRule: unknown; count: number }>;
   /** 最近用過的標籤（由既有 Tag 資料表歸納，不是新的資料模型） */
   tagOptions?: string[];
+  /** 還沒付完的預購，記帳時可以直接掛上去（金額全部由預購那邊現算） */
+  preorders?: Array<{
+    id: string;
+    name: string;
+    emoji: string;
+    ownerId: string | null;
+    total: number;
+    paid: number;
+    remaining: number;
+    state: string;
+    shares: Array<{ userId: string; due: number; borne: number; remaining: number }>;
+  }>;
   defaultFundId?: string | null;
   defaultAccountId?: string | null;
+  defaultPreorderId?: string | null;
 }) {
   const { me, partner, accounts, categories, today, initial } = props;
   const members = partner ? [me, partner] : [me];
@@ -72,6 +86,7 @@ export function TransactionForm(props: {
   const [categoryId, setCategoryId] = useState<string | null>(initial?.categoryId ?? null);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
+  const [preorderId, setPreorderId] = useState(initial?.preorderId ?? props.defaultPreorderId ?? "");
   const [tagText, setTagText] = useState((initial?.tags ?? []).map((t) => `#${t}`).join(" "));
   // 輸入框才是唯一的真相；chip 的選取狀態一律從輸入框推導，兩邊不可能不同步
   const pickedTags = normalizeTags(tagText);
@@ -144,6 +159,7 @@ export function TransactionForm(props: {
     clientRequestId,
     fundId: type === "EXPENSE" && fundId ? fundId : null,
     fundAccountId: type === "EXPENSE" && fundId && fundAccountId ? fundAccountId : null,
+    preorderId: type === "EXPENSE" && preorderId ? preorderId : null,
     id: initial?.id,
     version: initial?.version,
   });
@@ -319,6 +335,89 @@ export function TransactionForm(props: {
             ))}
           </select>
         </Field>
+
+        {/* ── 預購：直接在記帳頁掛上去，不用再繞到預購頁 ──
+               這裡完全不算錢：已付／待付／每人還需付都是預購那邊現算好帶進來的，
+               再加上「這筆記下去之後」的即時試算（用的是同一份分帳結果）。 */}
+        {type === "EXPENSE" && (props.preorders?.length ?? 0) > 0 && (
+          <div>
+            <Field label="算在哪張預購（選填）">
+              <select
+                aria-label="預購"
+                value={preorderId}
+                onChange={(e) => setPreorderId(e.target.value)}
+                className={cx(inputClass, "appearance-none")}
+                data-testid="preorder-select"
+              >
+                <option value="">不算在預購</option>
+                {props.preorders!.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}（待付 {formatMoney(p.remaining)}）{p.state !== "ACTIVE" ? "・已結清" : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {preorderId && (() => {
+              const po = props.preorders!.find((x) => x.id === preorderId);
+              if (!po) return null;
+              // 編輯既有的那一筆：原本的金額已經算在「已付」裡，試算前要先扣回來
+              const editingSame = initial?.preorderId === preorderId;
+              const paidBase = po.paid - (editingSame ? initial!.amount : 0);
+              const paidAfter = paidBase + (amount ?? 0);
+              const remainingAfter = Math.max(0, po.total - paidAfter);
+              const over = Math.max(0, paidAfter - po.total);
+              const lineOf = (uid: string) => preview.lines?.find((l) => l.userId === uid)?.amount ?? 0;
+              const borneBase = (uid: string) => {
+                const sh = po.shares.find((x) => x.userId === uid);
+                if (!sh) return 0;
+                return sh.borne - (editingSame ? lineOf(uid) : 0);
+              };
+              return (
+                <div className="mt-2 space-y-2 rounded-2xl bg-white p-3 text-xs shadow-sm" data-testid="preorder-hint-form">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-stone-500">應付總額</span>
+                    <span className="tnum font-semibold text-stone-800">{formatMoney(po.total)}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between border-t border-line pt-2">
+                    <span className="text-stone-500">目前已付</span>
+                    <span className="tnum text-stone-700" data-testid="preorder-paid-now">{formatMoney(Math.max(0, paidBase))}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-stone-500">記下這筆之後・已付</span>
+                    <span className="tnum font-semibold text-stone-800" data-testid="preorder-paid-after">{formatMoney(paidAfter)}</span>
+                  </div>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-stone-500">記下這筆之後・待付</span>
+                    <span className="tnum font-semibold text-brand-700" data-testid="preorder-remaining-after">{formatMoney(remainingAfter)}</span>
+                  </div>
+                  {over > 0 && <p className="text-amber-700">會比應付總額多 {formatMoney(over)}，確認一下是不是多記了一筆。</p>}
+                  <div className="space-y-1 border-t border-line pt-2" data-testid="preorder-shares">
+                    <p className="text-stone-500">記下這筆之後，每個人還需付</p>
+                    {members.map((m) => {
+                      const sh = po.shares.find((x) => x.userId === m.userId);
+                      const due = sh?.due ?? 0;
+                      const borneAfter = borneBase(m.userId) + lineOf(m.userId);
+                      const left = Math.max(0, due - borneAfter);
+                      return (
+                        <div key={m.userId} className="flex items-baseline justify-between" data-share={m.userId}>
+                          <span className="text-stone-600">{m.userId === me.userId ? "我" : m.nickname}</span>
+                          <span className="tnum text-stone-700">
+                            還需付 <span className="font-semibold text-stone-900">{formatMoney(left)}</span>
+                            <span className="ml-1 text-stone-400">（應負擔 {formatMoney(due)}・已負擔 {formatMoney(borneAfter)}）</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="leading-relaxed text-stone-400">
+                    「應負擔」由預購的「誰的」決定（共同＝平分）；「已負擔」是每一筆付款的分帳結果加總，
+                    所以這次要誰付、怎麼分，還是用下面的分帳設定。
+                  </p>
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         {type === "EXPENSE" && (props.funds?.length ?? 0) > 0 && (
           <div>

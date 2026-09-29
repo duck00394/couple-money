@@ -23,6 +23,7 @@ const payloadSchema = z.object({
   clientRequestId: z.string(),
   fundId: z.string().nullable().optional(),
   fundAccountId: z.string().nullable().optional(),
+  preorderId: z.string().nullable().optional(),
   tags: z.array(z.string().max(40)).max(20).optional(),
   id: z.string().optional(),
   version: z.number().int().optional(),

@@ -306,6 +306,13 @@ async function validateInput(tx: Tx, ctx: BookContext, input: TransactionInput, 
   return { occurredAt, lines };
 }
 
+/** 預購關聯只能指向這個帳本裡還在的單子（空值＝不關聯）。 */
+async function assertPreorder(tx: Tx, ctx: BookContext, preorderId: string | null | undefined) {
+  if (!preorderId) return;
+  const po = await tx.preorder.findFirst({ where: { id: preorderId, bookId: ctx.book.id, deletedAt: null }, select: { id: true } });
+  assert(po, "PREORDER_NOT_FOUND", "找不到這張預購");
+}
+
 /**
  * 在既有的資料庫 transaction 內建立一筆記帳（呼叫端要自己 lockBook 並處理 P2002）。
  * 固定支出產生交易時會用到，確保只有一套分帳／金流／稽核邏輯。
@@ -317,6 +324,7 @@ export async function createTransactionIn(tx: Tx, ctx: BookContext, input: Trans
     where: { bookId_clientRequestId: { bookId: ctx.book.id, clientRequestId: input.clientRequestId } },
   });
   if (dup) return dup; // 重複送出：回傳第一次建立的那筆
+  await assertPreorder(tx, ctx, input.preorderId);
   const { occurredAt, lines } = await validateInput(tx, ctx, input);
   const created = await tx.transaction.create({
     data: {
@@ -388,6 +396,7 @@ export async function updateTransaction(
       assert(input.type === "EXPENSE", "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，不能改成收入`);
       assert(input.amount >= refunded, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，金額不能改成比它少`);
     }
+    await assertPreorder(tx, ctx, input.preorderId);
     const { occurredAt, lines } = await validateInput(tx, ctx, { ...input, clientRequestId: before.clientRequestId }, before.categoryId);
     await tx.transactionPayment.deleteMany({ where: { transactionId: id } });
     await tx.transactionSplit.deleteMany({ where: { transactionId: id } });
@@ -401,6 +410,8 @@ export async function updateTransaction(
         note: input.note.trim() || null,
         categoryId: input.categoryId,
         splitRule: input.split as unknown as Prisma.InputJsonValue,
+        // undefined = 不變動（例如從別的流程呼叫）；null = 解除關聯
+        ...(input.preorderId !== undefined ? { preorderId: input.preorderId } : {}),
         version: { increment: 1 },
         updatedById: ctx.me.userId,
         payments: { create: lines.payments },

@@ -11,6 +11,8 @@ export default async function NewTransactionPage({ searchParams }: PageProps<"/t
   assertCanWrite(ctx);
   const [options, presets] = await Promise.all([loadTxFormOptions(ctx), recentPresets(ctx)]);
   const fundId = typeof sp.fund === "string" ? sp.fund : null;
+  // 從預購頁按「記一筆付款」過來時，預設就掛在那張單上
+  const preorderId = typeof sp.preorder === "string" ? sp.preorder : null;
   // 從哪裡來就回哪裡去（只接受站內路徑），記完帳才看得到自己剛記的那一筆
   const rawFrom = typeof sp.from === "string" ? sp.from : "";
   const from = rawFrom.startsWith("/") && !rawFrom.startsWith("//") ? rawFrom : null;
@@ -24,13 +26,14 @@ export default async function NewTransactionPage({ searchParams }: PageProps<"/t
     : null;
   return (
     <>
-      <PageHeader title="記一筆" back={fundId ? `/funds/${fundId}` : from ?? "/"} />
+      <PageHeader title="記一筆" back={preorderId ? `/preorders/${preorderId}` : fundId ? `/funds/${fundId}` : from ?? "/"} />
       <TxKindTabs active="new" />
       <TransactionForm
         presets={presets}
         {...options}
-        returnTo={fundId ? `/funds/${fundId}` : from ?? "/"}
+        returnTo={preorderId ? `/preorders/${preorderId}` : fundId ? `/funds/${fundId}` : from ?? "/"}
         defaultFundId={fundId}
+        defaultPreorderId={preorderId}
         defaultAccountId={storage?.accountId && options.accounts.some((a) => a.id === storage.accountId) ? storage.accountId : null}
       />
     </>

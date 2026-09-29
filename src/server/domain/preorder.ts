@@ -1,3 +1,5 @@
+import { allocate } from "@/lib/money";
+
 /**
  * 預購的純邏輯。
  *
@@ -70,4 +72,47 @@ export function etaText(expectedOn: string | null, today: string): string {
   if (d === 1) return "明天到貨";
   if (d <= 7) return `${d} 天後到貨`;
   return `預計 ${(expectedOn ?? "").replaceAll("-", "/")} 到貨`;
+}
+
+/* ───────────────────── 每個人還需付多少 ───────────────────── */
+
+export interface PreorderShare {
+  userId: string;
+  /** 這張單這個人應該負擔多少（依「誰的」決定） */
+  due: number;
+  /** 已經負擔掉多少（已付款那幾筆的分帳結果，扣掉退款） */
+  borne: number;
+  /** 還需要付多少：due − borne，不會是負數 */
+  remaining: number;
+  /** 負擔超過應負擔的部分（多付了）；正常是 0 */
+  over: number;
+}
+
+/**
+ * 把應付總額分給兩個人。
+ *
+ * 「誰的」決定應負擔：
+ *   - 我的／對方的 → 那個人全額
+ *   - 共同         → 兩人平分（餘數用既有的 allocate，跟分帳同一套分法）
+ *
+ * 「已負擔」不是自己算的——是把這張單底下每一筆付款的**既有分帳結果**加總，
+ * 所以「這次我先付，下次你付」「這次兩人平分」都能正確反映，
+ * 不需要在預購這邊再發明一套分帳規則。
+ */
+export function sharesOf(
+  total: number,
+  ownerId: string | null,
+  memberIds: string[],
+  borneByUser: Map<string, number>,
+): PreorderShare[] {
+  const ids = memberIds.length > 0 ? memberIds : ownerId ? [ownerId] : [];
+  if (ids.length === 0) return [];
+  const weights = ownerId === null ? ids.map(() => 1) : ids.map((id) => (id === ownerId ? 1 : 0));
+  // 「誰的」指向已經不在帳本裡的人時，退回平分，免得金額憑空消失
+  const dues = weights.some((w) => w > 0) ? allocate(total, weights) : allocate(total, ids.map(() => 1));
+  return ids.map((userId, i) => {
+    const borne = borneByUser.get(userId) ?? 0;
+    const diff = dues[i] - borne;
+    return { userId, due: dues[i], borne, remaining: Math.max(0, diff), over: Math.max(0, -diff) };
+  });
 }
