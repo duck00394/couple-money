@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { GroupSettingsForm, KeywordBox, NewTagForm, TagRow } from "@/components/PurchaseForms";
+import { CategoryRow, GroupSettingsForm, KeywordBox, NewCategoryForm, NewTagForm, TagRow } from "@/components/PurchaseForms";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
 import { getAppContext } from "@/server/context";
 import { prisma } from "@/server/db";
@@ -32,6 +32,24 @@ export default async function PurchaseManageGroupPage({ params }: PageProps<"/pu
       <div className="px-4">
         <SectionTitle>作品</SectionTitle>
         <Card><GroupSettingsForm group={{ id: summary.id, name: summary.name, icon: summary.icon, deletable: summary.deletable, entryCount: summary.totals.count }} /></Card>
+
+        {/* 商品分類依作品管理：每個 IP 會出的東西不一樣，不共用一份 */}
+        <SectionTitle right={<span className="text-xs text-stone-400">只屬於這個作品</span>}>商品分類</SectionTitle>
+        <Card className="divide-y divide-line p-0">
+          {detail.categories.map((c) => (
+            <CategoryRow
+              key={c.id}
+              category={{ id: c.id, name: c.name, isDefault: !!c.isDefault, count: c.totals.count }}
+              groupId={groupId}
+              canWrite={ctx.canWrite}
+            />
+          ))}
+          {ctx.canWrite && <NewCategoryForm groupId={groupId} />}
+        </Card>
+        <p className="mt-2 px-1 text-[11px] leading-relaxed text-stone-400">
+          商品分類是「買的是什麼東西」（吊娃、扭蛋、一番賞），角色是「上面是誰」。
+          標「預設」的那個只有改名、沒有刪除：刪掉其他分類時，底下的購買紀錄要移到它那裡。
+        </p>
 
         <SectionTitle>角色</SectionTitle>
         <Card className="divide-y divide-line p-0">

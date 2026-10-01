@@ -20,8 +20,7 @@ export default async function NewPurchasePage({ searchParams }: PageProps<"/purc
   const from = typeof sp.tx === "string" ? sp.tx : "";
   const mode = sp.mode === "manual" ? "manual" : "tx";
 
-  const [options, addable] = await Promise.all([optionsForForm(ctx), listAddableTransactions(ctx)]);
-  const { groups, categories } = options;
+  const [groups, addable] = await Promise.all([optionsForForm(ctx), listAddableTransactions(ctx)]);
   const group = fixedGroupId ? groups.find((g) => g.id === fixedGroupId) : undefined;
   const members = ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname, avatarColor: m.avatarColor, avatarUrl: m.avatarUrl }));
   const picked = addable.find((t) => t.id === from);
@@ -57,7 +56,6 @@ export default async function NewPurchasePage({ searchParams }: PageProps<"/purc
           <AddFromTransactionForm
             transaction={{ id: picked.id, title: picked.title, amount: picked.amount, occurredOn: toDateKey(picked.occurredAt) }}
             groups={groups}
-            categories={categories}
             members={members}
             fixedGroupId={fixedGroupId}
             detected={suggestion}
@@ -71,7 +69,7 @@ export default async function NewPurchasePage({ searchParams }: PageProps<"/purc
 
             {mode === "manual" ? (
               <div className="mt-4">
-                <AddManualForm groups={groups} categories={categories} members={members} fixedGroupId={fixedGroupId} today={toDateKey(new Date())} />
+                <AddManualForm groups={groups} members={members} fixedGroupId={fixedGroupId} today={toDateKey(new Date())} />
               </div>
             ) : (
               <>

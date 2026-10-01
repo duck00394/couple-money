@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { ArtIcon } from "@/components/ArtIcon";
-import { CategoryRow, NewCategoryForm, NewGroupForm } from "@/components/PurchaseForms";
+import { NewGroupForm } from "@/components/PurchaseForms";
 import { Card, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
-import { listCategories, listGroups } from "@/server/services/purchases";
-import { prisma } from "@/server/db";
+import { listGroups } from "@/server/services/purchases";
 
 /**
  * 分類管理・作品列表。
@@ -15,12 +14,7 @@ import { prisma } from "@/server/db";
  */
 export default async function PurchaseManagePage() {
   const { ctx } = await getAppContext();
-  const [groups, categories, counts] = await Promise.all([
-    listGroups(ctx),
-    listCategories(ctx),
-    prisma.purchaseEntry.groupBy({ by: ["categoryId"], where: { bookId: ctx.book.id }, _count: { _all: true } }),
-  ]);
-  const countOf = new Map(counts.map((c) => [c.categoryId, c._count._all]));
+  const groups = await listGroups(ctx);
 
   return (
     <>
@@ -44,7 +38,7 @@ export default async function PurchaseManagePage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-bold">{g.name}</p>
                     <p className="mt-0.5 text-xs text-stone-500">
-                      {g.tagCount} 個角色 ・ {g.keywordCount > 0 ? `${g.keywordCount} 個關鍵字` : "還沒有關鍵字"}
+                      {g.categoryCount} 個商品分類 ・ {g.tagCount} 個角色
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
@@ -65,22 +59,10 @@ export default async function PurchaseManagePage() {
           </>
         )}
 
-        {/* 商品分類是整個帳本共用的：吉伊卡哇的吊娃與排球少年的吊娃是同一種商品類型 */}
-        <SectionTitle right={<span className="text-xs text-stone-400">所有作品共用</span>}>商品分類</SectionTitle>
-        <Card className="divide-y divide-line p-0">
-          {categories.map((c) => (
-            <CategoryRow key={c.id} category={{ ...c, count: countOf.get(c.id) ?? 0 }} canWrite={ctx.canWrite} />
-          ))}
-          {ctx.canWrite && <NewCategoryForm />}
-        </Card>
-        <p className="mt-2 px-1 text-[11px] leading-relaxed text-stone-400">
-          標「預設」的那個只有改名、沒有刪除：刪掉其他分類時，底下的購買紀錄要移到它那裡。
-          商品分類是「買的是什麼東西」，角色是「上面是誰」，兩者分開管理。
-        </p>
-
         <p className="mt-5 rounded-xl bg-stone-100 px-3 py-2.5 text-xs leading-relaxed text-stone-600">
-          <b className="text-stone-700">有購買紀錄的作品不能直接刪除</b><br />
-          要先把底下的紀錄移到別的作品或移除，才會出現刪除。
+          <b className="text-stone-700">商品分類與角色都在各自的作品底下</b><br />
+          每個 IP 會出的東西不一樣，所以不共用一份 —— 點進作品才管理它自己的分類與角色。<br />
+          有購買紀錄的作品不能直接刪除，要先把底下的紀錄移走或移除。
         </p>
         <div className="mt-3">
           <LinkButton href="/purchases/trial" variant="soft" className="w-full">試跑看看關鍵字會抓到什麼</LinkButton>

@@ -21,17 +21,19 @@ export interface MemberOption {
   avatarColor: string;
   avatarUrl: string | null;
 }
+/** 商品分類（吊娃／S娃／扭蛋／景品／一番賞／其他⋯⋯），**依作品分開管理** */
+export interface CategoryOption {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
 export interface GroupOption {
   id: string;
   name: string;
   icon: string;
   tags: Array<{ id: string; name: string; isDefault: boolean }>;
-}
-/** 商品分類（吊娃／S娃／扭蛋／景品／一番賞／其他⋯⋯），整個帳本共用 */
-export interface CategoryOption {
-  id: string;
-  name: string;
-  isDefault: boolean;
+  /** 這個作品自己的商品分類 —— 每個 IP 會出的東西不一樣，不共用 */
+  categories: CategoryOption[];
 }
 
 /* ───────────────────────── 共用：歸屬與角色的 chip ───────────────────────── */
@@ -125,7 +127,7 @@ export function CategoryChips({
     return (
       <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800" role="alert" data-testid="category-empty">
         還沒有商品分類，所以沒辦法送出。
-        請到<Link href="/purchases/manage" className="font-semibold underline underline-offset-2">管理購買分類</Link>建立一個（例如：吊娃、扭蛋、一番賞）。
+        請到這個作品的<Link href="/purchases/manage" className="font-semibold underline underline-offset-2">管理頁</Link>建立一個（例如：吊娃、扭蛋、一番賞）。
       </p>
     );
   }
@@ -370,11 +372,10 @@ export function KeywordBox({
  * 金額與日期沿用那筆記帳，所以這張表單只問作品、歸屬、角色。
  */
 export function AddFromTransactionForm({
-  transaction, groups, categories, members, fixedGroupId, returnTo, detected,
+  transaction, groups, members, fixedGroupId, returnTo, detected,
 }: {
   transaction: { id: string; title: string; amount: number; occurredOn: string };
   groups: GroupOption[];
-  categories: CategoryOption[];
   members: MemberOption[];
   /** 從作品頁進來時，作品由頁面脈絡決定，不再問 */
   fixedGroupId?: string;
@@ -386,12 +387,15 @@ export function AddFromTransactionForm({
   const [groupId, setGroupId] = useState(fixedGroupId ?? detected?.groupId ?? groups[0]?.id ?? "");
   const group = groups.find((g) => g.id === groupId);
   const [tagId, setTagId] = useState(detected?.tagId ?? group?.tags.find((t) => t.isDefault)?.id ?? "");
-  const [categoryId, setCategoryId] = useState(detected?.categoryId ?? categories[0]?.id ?? "");
+  const [categoryId, setCategoryId] = useState(detected?.categoryId ?? group?.categories[0]?.id ?? "");
   const [ownerId, setOwnerId] = useState(JOINT);
 
+  // 換作品時，角色與商品分類都要跟著換 —— 兩者都是依作品管理的
   const pickGroup = (id: string) => {
+    const g = groups.find((x) => x.id === id);
     setGroupId(id);
-    setTagId(groups.find((g) => g.id === id)?.tags.find((t) => t.isDefault)?.id ?? "");
+    setTagId(g?.tags.find((t) => t.isDefault)?.id ?? "");
+    setCategoryId(g?.categories[0]?.id ?? "");
   };
 
   return (
@@ -420,7 +424,7 @@ export function AddFromTransactionForm({
 
       <div>
         <p className="mb-1.5 text-sm font-medium text-stone-600">商品分類</p>
-        <CategoryChips categories={categories} value={categoryId} onChange={setCategoryId} />
+        <CategoryChips categories={group?.categories ?? []} value={categoryId} onChange={setCategoryId} />
       </div>
 
       <div>
@@ -456,10 +460,9 @@ export function AddFromTransactionForm({
  * 獨立的歷史購買。**不建立 Transaction**，所以不影響任何財務數字。
  */
 export function AddManualForm({
-  groups, categories, members, fixedGroupId, today,
+  groups, members, fixedGroupId, today,
 }: {
   groups: GroupOption[];
-  categories: CategoryOption[];
   members: MemberOption[];
   fixedGroupId?: string;
   today: string;
@@ -468,12 +471,14 @@ export function AddManualForm({
   const [groupId, setGroupId] = useState(fixedGroupId ?? groups[0]?.id ?? "");
   const group = groups.find((g) => g.id === groupId);
   const [tagId, setTagId] = useState(group?.tags.find((t) => t.isDefault)?.id ?? "");
-  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
+  const [categoryId, setCategoryId] = useState(group?.categories[0]?.id ?? "");
   const [ownerId, setOwnerId] = useState(JOINT);
 
   const pickGroup = (id: string) => {
+    const g = groups.find((x) => x.id === id);
     setGroupId(id);
-    setTagId(groups.find((g) => g.id === id)?.tags.find((t) => t.isDefault)?.id ?? "");
+    setTagId(g?.tags.find((t) => t.isDefault)?.id ?? "");
+    setCategoryId(g?.categories[0]?.id ?? "");
   };
 
   return (
@@ -498,7 +503,7 @@ export function AddManualForm({
 
       <div>
         <p className="mb-1.5 text-sm font-medium text-stone-600">商品分類</p>
-        <CategoryChips categories={categories} value={categoryId} onChange={setCategoryId} />
+        <CategoryChips categories={group?.categories ?? []} value={categoryId} onChange={setCategoryId} />
       </div>
 
       <div>
@@ -524,7 +529,7 @@ export function AddManualForm({
 /* ───────────────────────── 編輯 ───────────────────────── */
 
 export function EditEntryForm({
-  entry, groups, categories, members, returnTo,
+  entry, groups, members, returnTo,
 }: {
   entry: {
     id: string; groupId: string; categoryId: string; tagId: string; ownerId: string | null; note: string | null;
@@ -532,7 +537,6 @@ export function EditEntryForm({
     createdByName: string; updatedByName: string; createdAt: string; updatedAt: string;
   };
   groups: GroupOption[];
-  categories: CategoryOption[];
   members: MemberOption[];
   returnTo?: string;
 }) {
@@ -545,10 +549,12 @@ export function EditEntryForm({
   const [categoryId, setCategoryId] = useState(entry.categoryId);
   const [ownerId, setOwnerId] = useState(entry.ownerId ?? JOINT);
 
+  // 換作品時角色與商品分類都要跟著換，不然會存到別的作品的角色或分類
   const pickGroup = (id: string) => {
+    const g = groups.find((x) => x.id === id);
     setGroupId(id);
-    // 換作品時角色一定要跟著換，不然會存到別的作品的角色
-    setTagId(groups.find((g) => g.id === id)?.tags.find((t) => t.isDefault)?.id ?? "");
+    setTagId(g?.tags.find((t) => t.isDefault)?.id ?? "");
+    setCategoryId(g?.categories[0]?.id ?? "");
   };
 
   return (
@@ -600,7 +606,7 @@ export function EditEntryForm({
 
         <div>
           <p className="mb-1.5 text-sm font-medium text-stone-600">商品分類</p>
-          <CategoryChips categories={categories} value={categoryId} onChange={setCategoryId} />
+          <CategoryChips categories={group?.categories ?? []} value={categoryId} onChange={setCategoryId} />
         </div>
 
         <div>
@@ -684,7 +690,7 @@ export function VoidedEntryActions({ entry }: { entry: { id: string; title: stri
 
 /* ───────────────────────── 商品分類管理 ───────────────────────── */
 
-export function CategoryRow({ category, canWrite }: { category: { id: string; name: string; isDefault: boolean; count: number }; canWrite: boolean }) {
+export function CategoryRow({ category, groupId, canWrite }: { category: { id: string; name: string; isDefault: boolean; count: number }; groupId: string; canWrite: boolean }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [state, action, pending] = useActionState(renameCategoryAction, undefined);
@@ -736,6 +742,7 @@ export function CategoryRow({ category, canWrite }: { category: { id: string; na
             <Button type="button" variant="soft" className="h-10 text-sm" onClick={() => setConfirming(false)}>不刪除</Button>
             <ActionForm action={delAction}>
               <input type="hidden" name="id" value={category.id} />
+              <input type="hidden" name="groupId" value={groupId} />
               <Button variant="danger" className="h-10 w-full text-sm" disabled={delPending} data-testid="delete-category-confirm-btn">
                 {delPending ? "刪除中…" : "刪除並移到預設"}
               </Button>
@@ -748,10 +755,11 @@ export function CategoryRow({ category, canWrite }: { category: { id: string; na
   );
 }
 
-export function NewCategoryForm() {
+export function NewCategoryForm({ groupId }: { groupId: string }) {
   const [state, action, pending] = useActionState(createCategoryAction, undefined);
   return (
     <ActionForm action={action} className="flex gap-2 px-4 py-3">
+      <input type="hidden" name="groupId" value={groupId} />
       <Input name="name" required maxLength={20} placeholder="新商品分類（例如：徽章）" aria-label="新商品分類" className="h-10 text-sm" />
       <Button variant="soft" className="h-10 shrink-0 px-4 text-sm" disabled={pending} data-testid="create-category">
         {pending ? "新增中…" : "＋ 新增"}

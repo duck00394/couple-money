@@ -31,7 +31,11 @@ describe("V12：購買紀錄", () => {
     });
 
   /** 這個帳本的預設商品分類（整本共用） */
-  const anyCat = async () => (await prisma.purchaseCategory.findFirstOrThrow({ where: { bookId: c.ctxA.book.id, isDefault: true } })).id;
+  /** 某個作品的預設商品分類 */
+  const anyCat = async (groupId?: string) =>
+    (await prisma.purchaseCategory.findFirstOrThrow({
+      where: { isDefault: true, ...(groupId ? { groupId } : { group: { bookId: c.ctxA.book.id } }) },
+    })).id;
 
   const tagsOf = async (groupId: string) =>
     prisma.purchaseTag.findMany({ where: { groupId }, orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }] });
@@ -93,7 +97,7 @@ describe("V12：購買紀錄", () => {
   it("1. owner = null 代表共同", async () => {
     const t = await expense("吉伊卡哇一番賞", $(250), 10);
     await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
     });
     const e = await purchases.entryOfTransaction(c.ctxA, t.id);
     assert.equal(e!.ownerId, null);
@@ -103,7 +107,7 @@ describe("V12：購買紀錄", () => {
   it("2. owner = A", async () => {
     const t = await expense("小八吊飾", $(350), 11);
     await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await tagNamed(chiikawa, "小八")).id, ownerId: c.aId,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await tagNamed(chiikawa, "小八")).id, ownerId: c.aId,
     });
     assert.equal((await purchases.entryOfTransaction(c.ctxA, t.id))!.ownerId, c.aId);
   });
@@ -111,7 +115,7 @@ describe("V12：購買紀錄", () => {
   it("3. owner = B", async () => {
     const t = await expense("兔兔玩偶", $(540), 12);
     await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await tagNamed(chiikawa, "兔兔")).id, ownerId: c.bId,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await tagNamed(chiikawa, "兔兔")).id, ownerId: c.bId,
     });
     assert.equal((await purchases.entryOfTransaction(c.ctxA, t.id))!.ownerId, c.bId);
   });
@@ -123,13 +127,13 @@ describe("V12：購買紀錄", () => {
 
     await rejects(
       purchases.addFromTransaction(c.ctxA, t.id, {
-        groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: outsider.id,
+        groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: outsider.id,
       }),
       "PURCHASE_OWNER",
     );
     await rejects(
       purchases.addManual(c.ctxA, {
-        groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: outsider.id,
+        groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: outsider.id,
         title: "手動的", amount: $(100), occurredOn: D(13),
       }),
       "PURCHASE_OWNER",
@@ -137,7 +141,7 @@ describe("V12：購買紀錄", () => {
     // 連隨便一個不存在的 id 也要擋
     await rejects(
       purchases.addManual(c.ctxA, {
-        groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: "not-a-real-user",
+        groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: "not-a-real-user",
         title: "假的", amount: $(100), occurredOn: D(13),
       }),
       "PURCHASE_OWNER",
@@ -148,11 +152,11 @@ describe("V12：購買紀錄", () => {
   it("5+6. 歸屬 + 角色雙重篩選，件數與金額跟著變", async () => {
     // 再補幾筆，讓每個組合都有資料
     await purchases.addManual(c.ctxA, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await tagNamed(chiikawa, "小八")).id, ownerId: c.aId,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await tagNamed(chiikawa, "小八")).id, ownerId: c.aId,
       title: "ハチワレ 馬克杯", amount: $(420), occurredOn: D(5),
     });
     await purchases.addManual(c.ctxA, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await tagNamed(chiikawa, "小八")).id, ownerId: null,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await tagNamed(chiikawa, "小八")).id, ownerId: null,
       title: "小八抱枕", amount: $(320), occurredOn: D(6),
     });
 
@@ -224,7 +228,7 @@ describe("V12：購買紀錄", () => {
   it("10. 來自記帳的紀錄：金額與日期直接引用交易，改交易就跟著變", async () => {
     const t = await expense("吉伊娃娃", $(680), 15);
     await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await tagNamed(chiikawa, "吉伊")).id, ownerId: null,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await tagNamed(chiikawa, "吉伊")).id, ownerId: null,
     });
     const e = await purchases.entryOfTransaction(c.ctxA, t.id);
     assert.equal(e!.amount, $(680));
@@ -247,7 +251,7 @@ describe("V12：購買紀錄", () => {
 
     // 編輯購買紀錄時，金額與日期不會被蓋掉
     await purchases.updateEntry(c.ctxA, e!.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: c.bId,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: c.bId,
       title: "想亂改", amount: $(1), occurredOn: D(1),
     });
     const after = await purchases.entryOfTransaction(c.ctxA, t.id);
@@ -258,11 +262,11 @@ describe("V12：購買紀錄", () => {
 
   it("11. 手動紀錄可以獨立編輯三個欄位", async () => {
     const m = await purchases.addManual(c.ctxA, {
-      groupId: haikyu, categoryId: await anyCat(), tagId: (await defaultTag(haikyu)).id, ownerId: c.bId,
+      groupId: haikyu, categoryId: await anyCat(haikyu), tagId: (await defaultTag(haikyu)).id, ownerId: c.bId,
       title: "日向立牌", amount: $(450), occurredOn: D(20), note: "在日本買的",
     });
     await purchases.updateEntry(c.ctxA, m.id, {
-      groupId: haikyu, categoryId: await anyCat(), tagId: (await defaultTag(haikyu)).id, ownerId: c.aId,
+      groupId: haikyu, categoryId: await anyCat(haikyu), tagId: (await defaultTag(haikyu)).id, ownerId: c.aId,
       title: "日向立牌（大）", amount: $(520), occurredOn: D(21), note: "改過了",
     });
     const e = await purchases.getEntry(c.ctxA, m.id);
@@ -276,7 +280,7 @@ describe("V12：購買紀錄", () => {
   it("12+13. 交易作廢後不計入，但購買紀錄仍然存在", async () => {
     const t = await expense("烏薩奇盲盒", $(180), 22);
     const e = await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: c.bId,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: c.bId,
     });
     const withIt = await purchases.getGroupDetail(c.ctxA, chiikawa);
 
@@ -321,7 +325,7 @@ describe("V12：購買紀錄", () => {
   it("16. 移除購買紀錄不會刪掉 Transaction", async () => {
     const t = await expense("要移除的", $(99), 23);
     const e = await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
     });
     const snapshot = await financeSnapshot();
 
@@ -337,7 +341,7 @@ describe("V12：購買紀錄", () => {
   it("17. 交易還原之後統計自動恢復", async () => {
     const t = await expense("會還原的", $(260), 24);
     const e = await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: c.aId,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: c.aId,
     });
     const before = (await purchases.getGroupDetail(c.ctxA, chiikawa)).totals;
 
@@ -360,15 +364,16 @@ describe("V12：購買紀錄", () => {
     // 把能做的操作全部做一遍
     const g = await purchases.createGroup(c.ctxA, { name: "間諜家家酒" });
     await purchases.createTag(c.ctxA, g.id, "安妮亞");
+    const gCat = await anyCat(g.id);
     await purchases.addManual(c.ctxA, {
-      groupId: g.id, categoryId: await anyCat(), tagId: (await tagNamed(g.id, "安妮亞")).id, ownerId: c.aId,
+      groupId: g.id, categoryId: gCat, tagId: (await tagNamed(g.id, "安妮亞")).id, ownerId: c.aId,
       title: "安妮亞娃娃", amount: $(1200), occurredOn: D(25),
     });
     const t = await expense("間諜家家酒公仔", $(600), 26);
     const e = await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: g.id, categoryId: await anyCat(), tagId: (await defaultTag(g.id)).id, ownerId: c.bId,
+      groupId: g.id, categoryId: gCat, tagId: (await defaultTag(g.id)).id, ownerId: c.bId,
     });
-    await purchases.updateEntry(c.ctxA, e.id, { groupId: g.id, categoryId: await anyCat(), tagId: (await tagNamed(g.id, "安妮亞")).id, ownerId: null });
+    await purchases.updateEntry(c.ctxA, e.id, { groupId: g.id, categoryId: gCat, tagId: (await tagNamed(g.id, "安妮亞")).id, ownerId: null });
     await purchases.deleteTag(c.ctxA, (await tagNamed(g.id, "安妮亞")).id);
     await purchases.removeEntry(c.ctxA, e.id);
 
@@ -395,10 +400,10 @@ describe("V12：購買紀錄", () => {
   });
 
   it("21. 關鍵字：只判斷作品與角色，不判斷歸屬", async () => {
-    await purchases.addKeyword(c.ctxA, { groupId: chiikawa, categoryId: await anyCat(), tagId: null, word: "吉伊卡哇" });
-    await purchases.addKeyword(c.ctxA, { groupId: chiikawa, categoryId: await anyCat(), tagId: null, word: "Chiikawa" });
+    await purchases.addKeyword(c.ctxA, { groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: null, word: "吉伊卡哇" });
+    await purchases.addKeyword(c.ctxA, { groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: null, word: "Chiikawa" });
     const usagi = await purchases.createTag(c.ctxA, chiikawa, "烏薩奇");
-    await purchases.addKeyword(c.ctxA, { groupId: chiikawa, categoryId: await anyCat(), tagId: usagi.id, word: "烏薩奇" });
+    await purchases.addKeyword(c.ctxA, { groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: usagi.id, word: "烏薩奇" });
 
     const def = await defaultTag(chiikawa);
     // 只命中作品 → 落到預設角色
@@ -437,7 +442,7 @@ describe("V12：購買紀錄", () => {
 
   it("22. 關鍵字修改不回溯舊資料；試跑不改任何東西", async () => {
     const countBefore = await prisma.purchaseEntry.count({ where: { bookId: c.ctxA.book.id } });
-    await purchases.addKeyword(c.ctxA, { groupId: haikyu, categoryId: await anyCat(), tagId: null, word: "排球" });
+    await purchases.addKeyword(c.ctxA, { groupId: haikyu, categoryId: await anyCat(haikyu), tagId: null, word: "排球" });
     assert.equal(
       await prisma.purchaseEntry.count({ where: { bookId: c.ctxA.book.id } }),
       countBefore,
@@ -473,11 +478,11 @@ describe("V12：購買紀錄", () => {
   it("24. 同一筆交易不會被加入兩次", async () => {
     const t = await expense("只能加一次", $(150), 28);
     await purchases.addFromTransaction(c.ctxA, t.id, {
-      groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
+      groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
     });
     await rejects(
       purchases.addFromTransaction(c.ctxA, t.id, {
-        groupId: chiikawa, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
+        groupId: chiikawa, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
       }),
       "PURCHASE_TX_DUPLICATE",
     );
@@ -489,7 +494,7 @@ describe("V12：購買紀錄", () => {
   it("25. 角色必須屬於指定的作品", async () => {
     await rejects(
       purchases.addManual(c.ctxA, {
-        groupId: haikyu, categoryId: await anyCat(), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
+        groupId: haikyu, categoryId: await anyCat(chiikawa), tagId: (await defaultTag(chiikawa)).id, ownerId: null,
         title: "跨作品的角色", amount: $(100), occurredOn: D(28),
       }),
       "PURCHASE_TAG_NOT_FOUND",
@@ -508,8 +513,8 @@ describe("V12-2：商品分類與四層導覽", () => {
   let chiikawa: string;
   let haikyu: string;
 
-  const cat = async (name: string) =>
-    (await prisma.purchaseCategory.findFirstOrThrow({ where: { bookId: c.ctxA.book.id, name } })).id;
+  const cat = async (name: string, groupId = chiikawa) =>
+    (await prisma.purchaseCategory.findFirstOrThrow({ where: { groupId, name } })).id;
   const tag = async (groupId: string, name: string) =>
     (await prisma.purchaseTag.findFirstOrThrow({ where: { groupId, name } })).id;
   const defTag = async (groupId: string) =>
@@ -532,10 +537,16 @@ describe("V12-2：商品分類與四層導覽", () => {
     chiikawa = groups[0].id;
     haikyu = groups[1].id;
 
-    const cats = await purchases.listCategories(c.ctxA);
-    assert.deepEqual(cats.map((x) => x.name), ["吊娃", "S娃", "扭蛋", "景品", "一番賞", "其他"]);
-    assert.equal(cats.filter((x) => x.isDefault).length, 1, "恰好一個預設商品分類");
-    assert.equal(cats.find((x) => x.isDefault)!.name, "其他");
+    // 每個作品各自一套商品分類（不共用）
+    for (const gid of [chiikawa, haikyu]) {
+      const cats = await purchases.listCategories(c.ctxA, gid);
+      assert.deepEqual(cats.map((x) => x.name), ["吊娃", "S娃", "扭蛋", "景品", "一番賞", "其他"]);
+      assert.equal(cats.filter((x) => x.isDefault).length, 1, "恰好一個預設商品分類");
+      assert.equal(cats.find((x) => x.isDefault)!.name, "其他");
+    }
+    const cc = await purchases.listCategories(c.ctxA, chiikawa);
+    const hc = await purchases.listCategories(c.ctxA, haikyu);
+    assert.ok(!cc.some((x) => hc.some((y) => y.id === x.id)), "兩個作品的分類是不同的列，沒有共用");
 
     // 角色依作品分開管理：吉伊卡哇的角色不會跑到排球少年底下
     const ct = await prisma.purchaseTag.findMany({ where: { groupId: chiikawa } });
@@ -549,27 +560,30 @@ describe("V12-2：商品分類與四層導覽", () => {
     assert.equal((await purchases.listGroups(c.ctxA)).length, 2);
   });
 
-  it("2. 每個作品都用得到同一組商品分類（商品分類是帳本層級）", async () => {
-    const 吊娃 = await cat("吊娃");
+  it("2. 兩個作品各有自己的「吊娃」，名字一樣但是不同的兩列", async () => {
+    const 吉伊吊娃 = await cat("吊娃", chiikawa);
+    const 排球吊娃 = await cat("吊娃", haikyu);
+    assert.notEqual(吉伊吊娃, 排球吊娃, "不共用");
+
     await purchases.addManual(c.ctxA, {
-      groupId: chiikawa, categoryId: 吊娃, tagId: await tag(chiikawa, "小八"), ownerId: c.bId,
+      groupId: chiikawa, categoryId: 吉伊吊娃, tagId: await tag(chiikawa, "小八"), ownerId: c.bId,
       title: "小八吊娃", amount: $(350), occurredOn: "2026-09-15",
     });
     await purchases.addManual(c.ctxA, {
-      groupId: haikyu, categoryId: 吊娃, tagId: await tag(haikyu, "日向"), ownerId: c.aId,
+      groupId: haikyu, categoryId: 排球吊娃, tagId: await tag(haikyu, "日向"), ownerId: c.aId,
       title: "日向吊娃", amount: $(400), occurredOn: "2026-09-16",
     });
-    const a = await purchases.getGroupDetail(c.ctxA, chiikawa, { categoryId: 吊娃 });
-    const b = await purchases.getGroupDetail(c.ctxA, haikyu, { categoryId: 吊娃 });
+    const a = await purchases.getGroupDetail(c.ctxA, chiikawa, { categoryId: 吉伊吊娃 });
+    const b = await purchases.getGroupDetail(c.ctxA, haikyu, { categoryId: 排球吊娃 });
     assert.equal(a.totals.count, 1);
-    assert.equal(b.totals.count, 1);
     assert.equal(a.totals.amount, $(350));
+    assert.equal(b.totals.count, 1);
     assert.equal(b.totals.amount, $(400));
   });
 
   it("3. 四層逐層收斂：每一層的數字都算在上面幾層的範圍內", async () => {
-    const 吊娃 = await cat("吊娃");
-    const 一番賞 = await cat("一番賞");
+    const 吊娃 = await cat("吊娃", chiikawa);
+    const 一番賞 = await cat("一番賞", chiikawa);
     // 吉伊卡哇再補幾筆，湊出所有組合
     await purchases.addManual(c.ctxA, {
       groupId: chiikawa, categoryId: 一番賞, tagId: await defTag(chiikawa), ownerId: null,
@@ -626,17 +640,25 @@ describe("V12-2：商品分類與四層導覽", () => {
   });
 
   it("4. 刪除商品分類：購買紀錄移到預設分類，作品／歸屬／角色都不動", async () => {
-    const 吊娃 = await cat("吊娃");
-    const fallback = await cat("其他");
+    const 吊娃 = await cat("吊娃", chiikawa);
+    const fallback = await cat("其他", chiikawa);
     const before = await prisma.purchaseEntry.findMany({ where: { categoryId: 吊娃 }, orderBy: { createdAt: "asc" } });
-    assert.equal(before.length, 4, "兩個作品加起來 4 件");
+    assert.equal(before.length, 3, "只有吉伊卡哇底下的 3 件，排球少年那件不受影響");
     const snapshot = before.map((e) => `${e.id}:${e.groupId}:${e.tagId}:${e.ownerId}`).sort();
 
+    const 排球吊娃 = await cat("吊娃", haikyu);
+    const 排球件數 = await prisma.purchaseEntry.count({ where: { categoryId: 排球吊娃 } });
+
     const r = await purchases.deleteCategory(c.ctxA, 吊娃);
-    assert.equal(r.movedCount, 4);
+    assert.equal(r.movedCount, 3);
+    assert.equal(
+      await prisma.purchaseEntry.count({ where: { categoryId: 排球吊娃 } }),
+      排球件數,
+      "刪吉伊卡哇的吊娃，排球少年的吊娃完全不受影響",
+    );
 
     const after = await prisma.purchaseEntry.findMany({ where: { id: { in: before.map((e) => e.id) } } });
-    assert.equal(after.length, 4, "一筆都沒少");
+    assert.equal(after.length, 3, "一筆都沒少");
     assert.ok(after.every((e) => e.categoryId === fallback), "全部移到預設分類");
     assert.deepEqual(
       after.map((e) => `${e.id}:${e.groupId}:${e.tagId}:${e.ownerId}`).sort(),
@@ -646,7 +668,7 @@ describe("V12-2：商品分類與四層導覽", () => {
   });
 
   it("5. 預設商品分類不可刪除，但可以改名", async () => {
-    const fallback = await cat("其他");
+    const fallback = await cat("其他", chiikawa);
     await rejects(purchases.deleteCategory(c.ctxA, fallback), "PURCHASE_CATEGORY_DEFAULT");
     await purchases.renameCategory(c.ctxA, fallback, "未分類");
     const row = await prisma.purchaseCategory.findUniqueOrThrow({ where: { id: fallback } });
@@ -655,27 +677,39 @@ describe("V12-2：商品分類與四層導覽", () => {
   });
 
   it("6. 不變式：同一個帳本不可能有第二個預設商品分類（資料庫層擋住）", async () => {
-    const other = await cat("扭蛋");
+    const other = await cat("扭蛋", chiikawa);
     await assert.rejects(
       prisma.purchaseCategory.update({ where: { id: other }, data: { isDefault: true } }),
-      (e: unknown) => String(e).includes("PurchaseCategory_one_default_per_book") || String(e).includes("Unique constraint"),
+      (e: unknown) => String(e).includes("PurchaseCategory_one_default_per_group") || String(e).includes("Unique constraint"),
     );
-    assert.equal(
-      await prisma.purchaseCategory.count({ where: { bookId: c.ctxA.book.id, isDefault: true } }),
-      1,
-    );
+    assert.equal(await prisma.purchaseCategory.count({ where: { groupId: chiikawa, isDefault: true } }), 1);
   });
 
-  it("7. 新增商品分類：所有作品立刻都用得到，不會動到既有資料", async () => {
+  it("7. 新增商品分類只加在那個作品，別的作品不受影響", async () => {
     const beforeEntries = await prisma.purchaseEntry.count({ where: { bookId: c.ctxA.book.id } });
-    const 徽章 = await purchases.createCategory(c.ctxA, "徽章");
+    const 徽章 = await purchases.createCategory(c.ctxA, chiikawa, "徽章");
     assert.equal(await prisma.purchaseEntry.count({ where: { bookId: c.ctxA.book.id } }), beforeEntries, "既有紀錄不受影響");
 
     const a = await purchases.getGroupDetail(c.ctxA, chiikawa);
     const b = await purchases.getGroupDetail(c.ctxA, haikyu);
     assert.ok(a.categories.some((x) => x.id === 徽章.id), "吉伊卡哇用得到");
-    assert.ok(b.categories.some((x) => x.id === 徽章.id), "排球少年也用得到");
-    await rejects(purchases.createCategory(c.ctxA, "徽章"), "PURCHASE_CATEGORY_DUPLICATE");
+    assert.ok(!b.categories.some((x) => x.id === 徽章.id), "排球少年不會跟著多一個 —— 每個 IP 出的東西不一樣");
+
+    // 同一個作品裡不能重名，但別的作品可以有同名的（各自一份）
+    await rejects(purchases.createCategory(c.ctxA, chiikawa, "徽章"), "PURCHASE_CATEGORY_DUPLICATE");
+    const 排球徽章 = await purchases.createCategory(c.ctxA, haikyu, "徽章");
+    assert.notEqual(排球徽章.id, 徽章.id, "名字一樣但是不同的兩列");
+  });
+
+  it("7b. 商品分類不能跨作品使用", async () => {
+    const 吉伊卡哇的一番賞 = await cat("一番賞", chiikawa);
+    await rejects(
+      purchases.addManual(c.ctxA, {
+        groupId: haikyu, categoryId: 吉伊卡哇的一番賞, tagId: await defTag(haikyu), ownerId: null,
+        title: "跨作品的分類", amount: $(100), occurredOn: "2026-09-20",
+      }),
+      "PURCHASE_CATEGORY_NOT_FOUND",
+    );
   });
 
   it("8. 商品分類必須是同一個帳本的", async () => {
@@ -683,7 +717,7 @@ describe("V12-2：商品分類與四層導覽", () => {
     await books.createBook(outsider.id, { name: "別人的帳本", nickname: "路人" });
     const otherCtx = (await books.getBookContext(outsider.id))!;
     await purchases.seedStarter(otherCtx);
-    const theirCat = (await prisma.purchaseCategory.findFirstOrThrow({ where: { bookId: otherCtx.book.id } })).id;
+    const theirCat = (await prisma.purchaseCategory.findFirstOrThrow({ where: { group: { bookId: otherCtx.book.id } } })).id;
 
     await rejects(
       purchases.addManual(c.ctxA, {
@@ -702,7 +736,7 @@ describe("V12-2：商品分類與四層導覽", () => {
   });
 
   it("10. 關鍵字可以連商品分類一起建議，但仍然不會自己建立", async () => {
-    const 一番賞 = await cat("一番賞");
+    const 一番賞 = await cat("一番賞", chiikawa);
     await purchases.addKeyword(c.ctxA, { groupId: chiikawa, tagId: null, word: "吉伊卡哇" });
     await purchases.addKeyword(c.ctxA, { groupId: chiikawa, tagId: null, categoryId: 一番賞, word: "一番賞" });
     await purchases.addKeyword(c.ctxA, { groupId: chiikawa, tagId: await tag(chiikawa, "小八"), word: "小八" });
@@ -745,10 +779,10 @@ describe("V12-2：商品分類與四層導覽", () => {
     };
     const before = await snap();
     await purchases.addManual(c.ctxA, {
-      groupId: haikyu, categoryId: await cat("扭蛋"), tagId: await tag(haikyu, "影山"), ownerId: c.aId,
+      groupId: haikyu, categoryId: await cat("扭蛋", haikyu), tagId: await tag(haikyu, "影山"), ownerId: c.aId,
       title: "影山扭蛋", amount: $(200), occurredOn: "2026-09-22",
     });
-    await purchases.createCategory(c.ctxA, "色紙");
+    await purchases.createCategory(c.ctxA, haikyu, "色紙");
     assert.equal(await snap(), before, "餘額、欠款、結算建議全部沒變");
     assert.equal(await prisma.transactionPayment.count({ where: { transaction: { purchaseEntry: { isNot: null } } } }), 0);
   });
@@ -756,14 +790,14 @@ describe("V12-2：商品分類與四層導覽", () => {
 
 
 /**
- * V12-3：商品分類是後來才加的那一層，所以要處理「舊帳本升級上來」的狀態。
+ * V12-3：商品分類是後來才加的那一層，所以要處理「舊作品升級上來」的狀態。
  *
- * 真實案例：在加入商品分類之前就建好作品、但還沒記過任何一筆的帳本，
- * 沒被 migration 的回填掃到（那版只看 PurchaseEntry），結果新增表單的
+ * 真實案例：在加入商品分類之前就建好的作品沒有自己的那一套，結果新增表單的
  * 「商品分類」整區空白、送出鈕永遠是灰的，畫面上沒有任何出路。
  */
-describe("V12-3：沒有商品分類的舊帳本不會卡死", () => {
+describe("V12-3：沒有商品分類的舊作品不會卡死", () => {
   let c: Awaited<ReturnType<typeof setupCouple>>;
+  let groupId: string;
 
   before(async () => {
     await reset();
@@ -773,58 +807,63 @@ describe("V12-3：沒有商品分類的舊帳本不會卡死", () => {
     await prisma.$disconnect();
   });
 
-  it("1. 有作品但一個商品分類都沒有時，讀取會就地把六種預設補出來", async () => {
+  it("1. 作品沒有任何商品分類時，讀取會就地把六種預設補出來", async () => {
     const g = await purchases.createGroup(c.ctxA, { name: "吉伊卡哇" });
-    // 重現舊帳本：作品在、分類被清空
-    await prisma.purchaseCategory.deleteMany({ where: { bookId: c.ctxA.book.id } });
-    assert.equal(await prisma.purchaseCategory.count({ where: { bookId: c.ctxA.book.id } }), 0);
+    groupId = g.id;
+    // 重現舊作品：作品在、分類被清空
+    await prisma.purchaseCategory.deleteMany({ where: { groupId } });
+    assert.equal(await prisma.purchaseCategory.count({ where: { groupId } }), 0);
 
-    const cats = await purchases.listCategories(c.ctxA);
+    const cats = await purchases.listCategories(c.ctxA, groupId);
     assert.deepEqual(cats.map((x) => x.name), ["吊娃", "S娃", "扭蛋", "景品", "一番賞", "其他"]);
     assert.equal(cats.filter((x) => x.isDefault).length, 1, "恰好一個預設");
 
     // 表單拿得到東西，所以送出鈕不會是灰的
-    const opts = await purchases.optionsForForm(c.ctxA);
-    assert.ok(opts.categories.length > 0, "新增表單的商品分類不是空的");
-    assert.ok(opts.groups.some((x) => x.id === g.id));
+    const groups = await purchases.optionsForForm(c.ctxA);
+    const mine = groups.find((x) => x.id === groupId)!;
+    assert.ok(mine.categories.length > 0, "新增表單的商品分類不是空的");
   });
 
   it("2. 補出來之後是冪等的：再讀幾次都還是六種，不會長出兩套", async () => {
-    await purchases.listCategories(c.ctxA);
-    await purchases.listCategories(c.ctxA);
-    const rows = await prisma.purchaseCategory.findMany({ where: { bookId: c.ctxA.book.id } });
+    await purchases.listCategories(c.ctxA, groupId);
+    await purchases.listCategories(c.ctxA, groupId);
+    const rows = await prisma.purchaseCategory.findMany({ where: { groupId } });
     assert.equal(rows.length, 6);
     assert.equal(rows.filter((r) => r.isDefault).length, 1);
   });
 
-  it("3. 補出來的分類真的能用：新增一筆購買紀錄會成功", async () => {
-    const g = (await purchases.listGroups(c.ctxA))[0];
-    const cat = (await purchases.listCategories(c.ctxA))[0];
-    const tag = await prisma.purchaseTag.findFirstOrThrow({ where: { groupId: g.id, isDefault: true } });
+  it("3. optionsForForm 也會順手補起來（多個作品一起）", async () => {
+    const g2 = await purchases.createGroup(c.ctxA, { name: "排球少年" });
+    await prisma.purchaseCategory.deleteMany({ where: { groupId: { in: [groupId, g2.id] } } });
+    const groups = await purchases.optionsForForm(c.ctxA);
+    assert.ok(groups.every((x) => x.categories.length === 6), "兩個作品都補好了");
+    // 兩邊是各自的列，不是共用
+    const a = groups.find((x) => x.id === groupId)!.categories.map((x) => x.id);
+    const b = groups.find((x) => x.id === g2.id)!.categories.map((x) => x.id);
+    assert.ok(!a.some((id) => b.includes(id)), "各自一套，沒有共用");
+  });
+
+  it("4. 補出來的分類真的能用：新增一筆購買紀錄會成功", async () => {
+    const cat = (await purchases.listCategories(c.ctxA, groupId))[0];
+    const tag = await prisma.purchaseTag.findFirstOrThrow({ where: { groupId, isDefault: true } });
     const e = await purchases.addManual(c.ctxA, {
-      groupId: g.id, categoryId: cat.id, tagId: tag.id, ownerId: c.aId,
+      groupId, categoryId: cat.id, tagId: tag.id, ownerId: c.aId,
       title: "兔兔吉伊", amount: $(350), occurredOn: "2026-09-25",
     });
     assert.ok(e.id);
-    const detail = await purchases.getGroupDetail(c.ctxA, g.id, { categoryId: cat.id });
+    const detail = await purchases.getGroupDetail(c.ctxA, groupId, { categoryId: cat.id });
     assert.equal(detail.totals.count, 1);
   });
 
-  it("4. 使用者自己改過分類的帳本不會被覆蓋", async () => {
-    // 只刪沒人在用的（在用的刪不掉，外鍵擋著 —— 那也正是我們要的）
-    const inUse = (await prisma.purchaseEntry.findMany({
-      where: { bookId: c.ctxA.book.id }, select: { categoryId: true },
-    })).map((e) => e.categoryId);
-    await prisma.purchaseCategory.deleteMany({
-      where: { bookId: c.ctxA.book.id, isDefault: false, id: { notIn: inUse } },
-    });
-    const left = await purchases.listCategories(c.ctxA);
+  it("5. 使用者自己改過分類的作品不會被覆蓋", async () => {
+    const inUse = (await prisma.purchaseEntry.findMany({ where: { groupId }, select: { categoryId: true } })).map((e) => e.categoryId);
+    await prisma.purchaseCategory.deleteMany({ where: { groupId, isDefault: false, id: { notIn: inUse } } });
+    const left = await purchases.listCategories(c.ctxA, groupId);
     assert.ok(left.length > 0 && left.length < 6, `應該只剩少數幾個，實際 ${left.length} 個`);
 
     await purchases.renameCategory(c.ctxA, left[0].id, "我自己的分類");
-    const after = await purchases.listCategories(c.ctxA);
+    const after = await purchases.listCategories(c.ctxA, groupId);
     assert.equal(after.length, left.length, "不是空的就不會被補，數量維持原狀");
     assert.ok(after.some((x) => x.name === "我自己的分類"), "改過的名字留著");
-    assert.ok(!after.some((x) => x.name === "扭蛋"), "被刪掉的沒有被補回來");
   });
 });

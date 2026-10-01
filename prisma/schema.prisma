@@ -107,9 +107,8 @@ model Book {
   preorders         Preorder[]
 
   // V12：購買紀錄
-  purchaseGroups     PurchaseGroup[]
-  purchaseEntries    PurchaseEntry[]
-  purchaseCategories PurchaseCategory[]
+  purchaseGroups  PurchaseGroup[]
+  purchaseEntries PurchaseEntry[]
 }
 
 model Couple {
@@ -870,36 +869,40 @@ model PurchaseGroup {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tags     PurchaseTag[]
-  entries  PurchaseEntry[]
-  keywords PurchaseKeyword[]
+  tags PurchaseTag[]
+
+  categories PurchaseCategory[]
+  entries    PurchaseEntry[]
+  keywords   PurchaseKeyword[]
 
   @@index([bookId, sortOrder])
 }
 
 /// 商品分類（第二層）：吊娃、S娃、扭蛋、景品、一番賞、其他⋯⋯
 ///
-/// 這是「商品類型」，**不是角色**。它跟作品是正交的：吉伊卡哇的吊娃與排球少年的吊娃
-/// 是同一種商品類型，所以掛在 Book 底下由兩個作品共用，新增一次全部作品都用得到。
-/// （角色則相反，是依作品分開管理的 —— 見 PurchaseTag。）
+/// 這是「商品類型」，**不是角色**。
+/// **依作品分開管理**，跟 PurchaseTag 一樣：每個 IP 會出的東西本來就不一樣
+/// （吉伊卡哇有一番賞，別的作品可能根本沒有；排球少年可能有色紙、吉伊卡哇沒有），
+/// 共用一份會讓每個作品的選單都塞滿用不到的東西。
 ///
 /// isDefault 的那一個（出廠叫「其他」）是刪除分類時的落點，規則與 PurchaseTag 相同：
-/// 恰好一個、可改名、不可刪除，至多一個由 migration 的 partial unique index 保證。
+/// 每個作品恰好一個、可改名、不可刪除，
+/// 至多一個由 migration 的 partial unique index（PurchaseCategory_one_default_per_group）保證。
 model PurchaseCategory {
-  id        String   @id @default(cuid())
-  bookId    String
-  book      Book     @relation(fields: [bookId], references: [id])
+  id        String        @id @default(cuid())
+  groupId   String
+  group     PurchaseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
   name      String
-  /// true = 刪除其他分類時，底下的購買紀錄移到這裡。每個帳本恰好一個
-  isDefault Boolean  @default(false)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  /// true = 刪除分類時，底下的購買紀錄移到這裡。每個作品恰好一個
+  isDefault Boolean       @default(false)
+  sortOrder Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   entries  PurchaseEntry[]
   keywords PurchaseKeyword[]
 
-  @@index([bookId, sortOrder])
+  @@index([groupId, sortOrder])
 }
 
 /// 作品內的角色／細分類。

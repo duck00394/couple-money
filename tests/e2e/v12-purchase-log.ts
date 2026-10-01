@@ -127,8 +127,23 @@ export async function v12PurchaseLog(a: Page, b: Page) {
   expect(await pageText(a)).toContain("小八吊娃");
   step("第四層角色篩選：阿本的吊娃裡，小八有 1 件");
 
+  // ───────── 商品分類依作品管理，不共用 ─────────
+  const manageUrl = `/purchases/manage/${groupUrl.split("/").pop()}`;
+  await go(a, manageUrl);
+  await a.getByLabel("新商品分類").fill("徽章");
+  await a.getByTestId("create-category").click();
+  await a.waitForTimeout(1500);
+  expect(await pageText(a, manageUrl), "吉伊卡哇多了徽章").toContain("徽章");
+
+  await go(a, "/purchases/manage");
+  await a.getByTestId("manage-group-row").filter({ hasText: "排球少年" }).click();
+  await a.waitForURL(/\/purchases\/manage\/[^/]+$/);
+  await loaded(a);
+  expect(await pageText(a), "排球少年不會跟著多一個徽章").not.toContain("徽章");
+  step("商品分類依作品管理：在吉伊卡哇加「徽章」，排球少年不受影響");
+
   // ───────── 關鍵字只給建議 ─────────
-  await go(a, `/purchases/manage/${groupUrl.split("/").pop()}`);
+  await go(a, manageUrl);
   await a.getByLabel("新關鍵字").first().fill("吉伊卡哇");
   await a.getByRole("button", { name: "＋", exact: true }).first().click();
   await a.waitForTimeout(1500);

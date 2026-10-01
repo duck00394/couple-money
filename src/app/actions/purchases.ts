@@ -185,7 +185,7 @@ export async function convertToManualAction(_: ActionState, form: FormData): Pro
 export async function createCategoryAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
     const { ctx } = await getAppContext();
-    await createCategory(ctx, str(form, "name"));
+    await createCategory(ctx, str(form, "groupId"), str(form, "name"));
     return { ok: "已新增商品分類" };
   });
   revalidatePath("/", "layout");

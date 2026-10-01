@@ -58,24 +58,25 @@ export function assertOwner(ctx: BookContext, ownerId: string | null): string | 
 }
 
 /**
- * 確保這個帳本有六種預設商品分類。沒有才建，已經有就原封不動。
- * 商品分類是**整個帳本共用**的（吉伊卡哇的吊娃與排球少年的吊娃是同一種商品類型），
- * 所以用 bookId 而不是 groupId。
+ * 確保這個作品有六種預設商品分類。沒有才建，已經有就原封不動。
+ *
+ * 商品分類**依作品分開管理**（跟角色一樣）：每個 IP 會出的東西本來就不一樣，
+ * 吉伊卡哇有一番賞、別的作品可能根本沒有，共用一份會讓選單塞滿用不到的東西。
  */
-export async function ensureCategories(tx: Tx, bookId: string) {
-  const existing = await tx.purchaseCategory.count({ where: { bookId } });
+export async function ensureCategories(tx: Tx, groupId: string) {
+  const existing = await tx.purchaseCategory.count({ where: { groupId } });
   if (existing > 0) return;
   await tx.purchaseCategory.createMany({
     data: DEFAULT_CATEGORIES.map((name, i) => ({
-      bookId, name, isDefault: name === DEFAULT_CATEGORY_FALLBACK, sortOrder: i,
+      groupId, name, isDefault: name === DEFAULT_CATEGORY_FALLBACK, sortOrder: i,
     })),
   });
 }
 
-/** 取得這個帳本的預設商品分類（刪分類時的落點）。 */
-export async function defaultCategoryOf(client: Client, bookId: string) {
-  const c = await client.purchaseCategory.findFirst({ where: { bookId, isDefault: true } });
-  assert(c, "PURCHASE_DEFAULT_CATEGORY_MISSING", "這個帳本缺少預設商品分類，請聯絡開發者");
+/** 取得這個作品的預設商品分類（刪分類時的落點）。 */
+export async function defaultCategoryOf(client: Client, groupId: string) {
+  const c = await client.purchaseCategory.findFirst({ where: { groupId, isDefault: true } });
+  assert(c, "PURCHASE_DEFAULT_CATEGORY_MISSING", "這個作品缺少預設商品分類，請聯絡開發者");
   return c;
 }
 
@@ -137,8 +138,8 @@ export async function createGroup(ctx: BookContext, input: GroupInput) {
     await tx.purchaseTag.create({
       data: { groupId: group.id, name: DEFAULT_TAG_NAME, isDefault: true, sortOrder: 0 },
     });
-    // 商品分類是整個帳本共用的，第一次建作品時一起種出來
-    await ensureCategories(tx, ctx.book.id);
+    // 每個作品有自己的一套商品分類，建立時一起種出來
+    await ensureCategories(tx, group.id);
     await auditIn(tx, ctx, "CREATE", "PurchaseGroup", group.id, null, { name, icon: group.icon });
     return group;
   });
@@ -180,22 +181,32 @@ export async function deleteGroup(ctx: BookContext, groupId: string) {
 
 /* ───────────────────────── 商品分類 ───────────────────────── */
 
-export async function createCategory(ctx: BookContext, name: string) {
+export async function createCategory(ctx: BookContext, groupId: string, name: string) {
   assertCanWrite(ctx);
   const clean = assertTagName(name);
   return prisma.$transaction(async (tx) => {
     await lockBook(tx, ctx.book.id);
-    await ensureCategories(tx, ctx.book.id);
-    const rows = await tx.purchaseCategory.findMany({ where: { bookId: ctx.book.id }, select: { id: true, name: true } });
+    await loadGroup(tx, ctx, groupId);
+    await ensureCategories(tx, groupId);
+    const rows = await tx.purchaseCategory.findMany({ where: { groupId }, select: { id: true, name: true } });
     const clash = rows.find((r) => nameKey(r.name) === nameKey(clean));
-    assert(!clash, "PURCHASE_CATEGORY_DUPLICATE", `已經有一個叫「${clash?.name}」的商品分類了`);
-    const last = await tx.purchaseCategory.findFirst({ where: { bookId: ctx.book.id }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
+    assert(!clash, "PURCHASE_CATEGORY_DUPLICATE", `這個作品裡已經有一個叫「${clash?.name}」的商品分類了`);
+    const last = await tx.purchaseCategory.findFirst({ where: { groupId }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
     const created = await tx.purchaseCategory.create({
-      data: { bookId: ctx.book.id, name: clean, isDefault: false, sortOrder: (last?.sortOrder ?? 0) + 1 },
+      data: { groupId, name: clean, isDefault: false, sortOrder: (last?.sortOrder ?? 0) + 1 },
     });
-    await auditIn(tx, ctx, "CREATE", "PurchaseCategory", created.id, null, { name: clean });
+    await auditIn(tx, ctx, "CREATE", "PurchaseCategory", created.id, null, { groupId, name: clean });
     return created;
   });
+}
+
+/** 取得一個商品分類，並確認它屬於這個帳本的某個作品。 */
+async function loadCategory(tx: Tx, ctx: BookContext, categoryId: string) {
+  const c = await tx.purchaseCategory.findFirst({
+    where: { id: categoryId, group: { bookId: ctx.book.id } },
+  });
+  assert(c, "PURCHASE_CATEGORY_NOT_FOUND", "找不到這個商品分類");
+  return c;
 }
 
 /** 改名。預設分類也可以改名，改了仍然是落點（判斷看 isDefault，不看名字）。 */
@@ -204,11 +215,10 @@ export async function renameCategory(ctx: BookContext, categoryId: string, name:
   const clean = assertTagName(name);
   return prisma.$transaction(async (tx) => {
     await lockBook(tx, ctx.book.id);
-    const before = await tx.purchaseCategory.findFirst({ where: { id: categoryId, bookId: ctx.book.id } });
-    assert(before, "PURCHASE_CATEGORY_NOT_FOUND", "找不到這個商品分類");
-    const rows = await tx.purchaseCategory.findMany({ where: { bookId: ctx.book.id }, select: { id: true, name: true } });
+    const before = await loadCategory(tx, ctx, categoryId);
+    const rows = await tx.purchaseCategory.findMany({ where: { groupId: before.groupId }, select: { id: true, name: true } });
     const clash = rows.find((r) => r.id !== categoryId && nameKey(r.name) === nameKey(clean));
-    assert(!clash, "PURCHASE_CATEGORY_DUPLICATE", `已經有一個叫「${clash?.name}」的商品分類了`);
+    assert(!clash, "PURCHASE_CATEGORY_DUPLICATE", `這個作品裡已經有一個叫「${clash?.name}」的商品分類了`);
     const updated = await tx.purchaseCategory.update({ where: { id: categoryId }, data: { name: clean } });
     await auditIn(tx, ctx, "UPDATE", "PurchaseCategory", categoryId, { name: before.name }, { name: clean });
     return updated;
@@ -216,21 +226,20 @@ export async function renameCategory(ctx: BookContext, categoryId: string, name:
 }
 
 /**
- * 刪除商品分類。底下的購買紀錄在**同一個 $transaction** 內轉到預設分類，
+ * 刪除商品分類。底下的購買紀錄在**同一個 $transaction** 內轉到**同一個作品的**預設分類，
  * 一筆都不會消失、也不會失去分類。作品、歸屬、角色完全不動。
  */
 export async function deleteCategory(ctx: BookContext, categoryId: string) {
   assertCanWrite(ctx);
   return prisma.$transaction(async (tx) => {
     await lockBook(tx, ctx.book.id);
-    const before = await tx.purchaseCategory.findFirst({ where: { id: categoryId, bookId: ctx.book.id } });
-    assert(before, "PURCHASE_CATEGORY_NOT_FOUND", "找不到這個商品分類");
+    const before = await loadCategory(tx, ctx, categoryId);
     assert(
       !before.isDefault,
       "PURCHASE_CATEGORY_DEFAULT",
-      "這是預設商品分類，不能刪除。刪掉其他分類時，底下的購買紀錄要移到它那裡。可以改名。",
+      "這是這個作品的預設商品分類，不能刪除。刪掉其他分類時，底下的購買紀錄要移到它那裡。可以改名。",
     );
-    const fallback = await defaultCategoryOf(tx, ctx.book.id);
+    const fallback = await defaultCategoryOf(tx, before.groupId);
     const moved = await tx.purchaseEntry.updateMany({ where: { categoryId }, data: { categoryId: fallback.id } });
     await tx.purchaseCategory.delete({ where: { id: categoryId } });
     await auditIn(tx, ctx, "DELETE", "PurchaseCategory", categoryId, before, { movedTo: fallback.id, movedCount: moved.count });
@@ -246,7 +255,6 @@ export async function seedStarter(ctx: BookContext) {
   assertCanWrite(ctx);
   return prisma.$transaction(async (tx) => {
     await lockBook(tx, ctx.book.id);
-    await ensureCategories(tx, ctx.book.id);
     const existing = await tx.purchaseGroup.count({ where: { bookId: ctx.book.id } });
     if (existing > 0) return { created: 0 };
     let created = 0;
@@ -261,6 +269,8 @@ export async function seedStarter(ctx: BookContext) {
       await tx.purchaseTag.createMany({
         data: g.tags.map((name, j) => ({ groupId: group.id, name, isDefault: false, sortOrder: j + 1 })),
       });
+      // 每個作品自己一套商品分類
+      await ensureCategories(tx, group.id);
       await auditIn(tx, ctx, "CREATE", "PurchaseGroup", group.id, null, { name: g.name, starter: true });
       created += 1;
     }
@@ -341,8 +351,9 @@ export async function addKeyword(ctx: BookContext, input: { groupId: string; tag
     const dup = await tx.purchaseKeyword.findUnique({ where: { bookId_word: { bookId: ctx.book.id, word } } });
     assert(!dup, "PURCHASE_KEYWORD_DUPLICATE", `關鍵字「${word}」已經用在別的地方了`);
     if (input.categoryId) {
-      const cat = await tx.purchaseCategory.findFirst({ where: { id: input.categoryId, bookId: ctx.book.id } });
-      assert(cat, "PURCHASE_CATEGORY_NOT_FOUND", "找不到這個商品分類");
+      // 商品分類依作品管理，所以關鍵字建議的分類也必須是同一個作品底下的
+      const cat = await tx.purchaseCategory.findFirst({ where: { id: input.categoryId, groupId: input.groupId } });
+      assert(cat, "PURCHASE_CATEGORY_NOT_FOUND", "這個商品分類不屬於這個作品");
     }
     const kw = await tx.purchaseKeyword.create({
       data: { bookId: ctx.book.id, groupId: input.groupId, tagId: input.tagId, categoryId: input.categoryId ?? null, word },
@@ -525,6 +536,7 @@ export interface GroupSummary {
   name: string;
   icon: string;
   tagCount: number;
+  categoryCount: number;
   keywordCount: number;
   totals: PurchaseTotals;
   /** 共同／各成員的件數，首頁用一行小字帶過，不做成篩選 */
@@ -534,14 +546,16 @@ export interface GroupSummary {
 
 /** 購買紀錄首頁：作品列表。作品是唯一的第一層入口，這裡不展開任何角色。 */
 export async function listGroups(ctx: BookContext): Promise<GroupSummary[]> {
-  const [groups, entries, tagCounts, kwCounts] = await Promise.all([
+  const [groups, entries, tagCounts, kwCounts, catCounts] = await Promise.all([
     prisma.purchaseGroup.findMany({ where: { bookId: ctx.book.id }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
     prisma.purchaseEntry.findMany({ where: { bookId: ctx.book.id }, include: ENTRY_INCLUDE }),
     prisma.purchaseTag.groupBy({ by: ["groupId"], where: { group: { bookId: ctx.book.id } }, _count: { _all: true } }),
     prisma.purchaseKeyword.groupBy({ by: ["groupId"], where: { bookId: ctx.book.id }, _count: { _all: true } }),
+    prisma.purchaseCategory.groupBy({ by: ["groupId"], where: { group: { bookId: ctx.book.id } }, _count: { _all: true } }),
   ]);
   const tagCount = new Map(tagCounts.map((t) => [t.groupId, t._count._all]));
   const kwCount = new Map(kwCounts.map((t) => [t.groupId, t._count._all]));
+  const catCount = new Map(catCounts.map((t) => [t.groupId, t._count._all]));
   return groups.map((g) => {
     const mine = entries.filter((e) => e.groupId === g.id);
     const values = mine.map(entryValue);
@@ -552,6 +566,7 @@ export async function listGroups(ctx: BookContext): Promise<GroupSummary[]> {
     return {
       id: g.id, name: g.name, icon: g.icon,
       tagCount: tagCount.get(g.id) ?? 0,
+      categoryCount: catCount.get(g.id) ?? 0,
       keywordCount: kwCount.get(g.id) ?? 0,
       totals: totals(values),
       byOwner,
@@ -607,7 +622,7 @@ export async function getGroupDetail(
 ): Promise<GroupDetail> {
   const group = await loadGroup(prisma, ctx, groupId);
   const [categories, tags, all] = await Promise.all([
-    prisma.purchaseCategory.findMany({ where: { bookId: ctx.book.id }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
+    prisma.purchaseCategory.findMany({ where: { groupId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] }),
     prisma.purchaseTag.findMany({ where: { groupId }, orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }] }),
     prisma.purchaseEntry.findMany({
       where: { bookId: ctx.book.id, groupId },
@@ -706,9 +721,9 @@ async function resolveTarget(tx: Tx, ctx: BookContext, input: EntryInput) {
   // 角色是依作品分開管理的：吉伊卡哇的角色不能跑到排球少年底下
   const tag = await tx.purchaseTag.findFirst({ where: { id: input.tagId, groupId: input.groupId } });
   assert(tag, "PURCHASE_TAG_NOT_FOUND", "這個角色不屬於這個作品");
-  // 商品分類是整個帳本共用的，只要確認是同一個帳本的就好
-  const category = await tx.purchaseCategory.findFirst({ where: { id: input.categoryId, bookId: ctx.book.id } });
-  assert(category, "PURCHASE_CATEGORY_NOT_FOUND", "找不到這個商品分類");
+  // 商品分類也是依作品分開管理：吉伊卡哇的一番賞不能掛到排球少年底下
+  const category = await tx.purchaseCategory.findFirst({ where: { id: input.categoryId, groupId: input.groupId } });
+  assert(category, "PURCHASE_CATEGORY_NOT_FOUND", "這個商品分類不屬於這個作品");
   return { tagId: tag.id, categoryId: category.id, ownerId: assertOwner(ctx, input.ownerId) };
 }
 
@@ -875,40 +890,58 @@ export async function suggestForTransaction(ctx: BookContext, transactionId: str
   return suggest(ctx, t, client);
 }
 
-/** 記帳表單與各種新增表單的選單資料：作品（含角色）＋ 整個帳本共用的商品分類。 */
+/**
+ * 記帳表單與各種新增表單的選單資料：每個作品帶著**自己的**角色與商品分類。
+ *
+ * 商品分類跟角色一樣依作品管理，所以巢狀在 group 裡面；畫面上換作品時，
+ * 分類與角色要一起換掉，不能把別的作品的東西留在那裡。
+ */
 export async function optionsForForm(ctx: BookContext) {
-  const [groups, categories] = await Promise.all([
-    prisma.purchaseGroup.findMany({
-      where: { bookId: ctx.book.id },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      include: { tags: { orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }] } },
-    }),
-    listCategories(ctx),
-  ]);
-  return {
-    groups: groups.map((g) => ({
-      id: g.id, name: g.name, icon: g.icon,
-      tags: g.tags.map((t) => ({ id: t.id, name: t.name, isDefault: t.isDefault })),
-    })),
-    categories,
-  };
+  const groups = await prisma.purchaseGroup.findMany({
+    where: { bookId: ctx.book.id },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    include: {
+      tags: { orderBy: [{ isDefault: "desc" }, { sortOrder: "asc" }] },
+      categories: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
+    },
+  });
+  // 商品分類是後來才加的，之前建好的作品沒有自己的那一套 —— 這裡順手補起來，
+  // 不然表單會整區空白、送出鈕按不下去
+  const missing = groups.filter((g) => g.categories.length === 0);
+  if (missing.length > 0) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        await lockBook(tx, ctx.book.id);
+        for (const g of missing) await ensureCategories(tx, g.id);
+      });
+      return optionsForForm(ctx);
+    } catch {
+      // 補不出來就照常回去，畫面會顯示提示
+    }
+  }
+  return groups.map((g) => ({
+    id: g.id,
+    name: g.name,
+    icon: g.icon,
+    tags: g.tags.map((t) => ({ id: t.id, name: t.name, isDefault: t.isDefault })),
+    categories: g.categories.map((c) => ({ id: c.id, name: c.name, isDefault: c.isDefault })),
+  }));
 }
 
 /**
- * 這個帳本的商品分類（整本共用）。
+ * 某個作品的商品分類。
  *
  * 一個都沒有時會就地把六種預設補出來。原因是沒有分類的話，新增購買紀錄的表單會
  * 整區空白、送出鈕永遠是灰的，而且畫面上沒有任何出路 —— 使用者只能卡在那裡。
- * 這種帳本確實存在過：商品分類是後來才加的，在那之前就建好作品、卻還沒記過任何一筆的
- * 帳本沒被 migration 的回填掃到。
+ * 這種作品確實存在過：商品分類是後來才加的，在那之前建好的作品沒有自己的分類。
  *
  * 補的動作是冪等的（count 為 0 才做，而且 partial unique index 擋著重複的預設），
  * 所以併發兩個請求同時進來也不會長出兩套。
  */
-export async function listCategories(ctx: BookContext) {
+export async function listCategories(ctx: BookContext, groupId: string) {
   const read = () =>
     prisma.purchaseCategory.findMany({
-      where: { bookId: ctx.book.id },
+      where: { groupId, group: { bookId: ctx.book.id } },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     });
   let rows = await read();
@@ -916,11 +949,12 @@ export async function listCategories(ctx: BookContext) {
     try {
       await prisma.$transaction(async (tx) => {
         await lockBook(tx, ctx.book.id);
-        await ensureCategories(tx, ctx.book.id);
+        await loadGroup(tx, ctx, groupId);
+        await ensureCategories(tx, groupId);
       });
       rows = await read();
     } catch {
-      // 補不出來（例如沒有寫入權限）就照常回空陣列，頁面自己會顯示提示，不要讓整頁爆掉
+      // 補不出來就照常回空陣列，頁面自己會顯示提示，不要讓整頁爆掉
     }
   }
   return rows.map((c) => ({ id: c.id, name: c.name, isDefault: c.isDefault }));

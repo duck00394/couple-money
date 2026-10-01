@@ -73,10 +73,17 @@ export function TransactionForm(props: {
   defaultPreorderId?: string | null;
   /** 從別的頁面帶著特殊返回路徑進來時設 true：只給單一送出鈕，不給「再記一筆」 */
   stayDisabled?: boolean;
-  /** 購買紀錄的作品與角色。空陣列＝還沒建立任何作品，那一列就不顯示 */
-  purchaseGroups?: Array<{ id: string; name: string; icon: string; tags: Array<{ id: string; name: string; isDefault: boolean }> }>;
-  /** 商品分類（吊娃／扭蛋／一番賞⋯⋯），整個帳本共用 */
-  purchaseCategories?: Array<{ id: string; name: string; isDefault: boolean }>;
+  /**
+   * 購買紀錄的作品。每個作品帶著**自己的**角色與商品分類
+   * （每個 IP 會出的東西不一樣，不共用一份）。空陣列＝還沒建立任何作品，那一列就不顯示。
+   */
+  purchaseGroups?: Array<{
+    id: string;
+    name: string;
+    icon: string;
+    tags: Array<{ id: string; name: string; isDefault: boolean }>;
+    categories: Array<{ id: string; name: string; isDefault: boolean }>;
+  }>;
 }) {
   const { me, partner, accounts, categories, today, initial } = props;
   const members = partner ? [me, partner] : [me];
@@ -87,13 +94,15 @@ export function TransactionForm(props: {
   const [pGroupId, setPGroupId] = useState(purchaseGroups[0]?.id ?? "");
   const pGroup = purchaseGroups.find((g) => g.id === pGroupId);
   const [pTagId, setPTagId] = useState(purchaseGroups[0]?.tags.find((t) => t.isDefault)?.id ?? "");
-  const purchaseCategories = props.purchaseCategories ?? [];
-  const [pCategoryId, setPCategoryId] = useState(purchaseCategories[0]?.id ?? "");
+  const [pCategoryId, setPCategoryId] = useState(purchaseGroups[0]?.categories[0]?.id ?? "");
   // 歸屬預設「共同」，而且**永遠不從付款人推定** —— 付款人與購買歸屬是兩回事
   const [pOwnerId, setPOwnerId] = useState(JOINT);
+  // 換作品時角色與商品分類都要跟著換：兩者都是依作品管理的
   const pickPurchaseGroup = (id: string) => {
+    const g = purchaseGroups.find((x) => x.id === id);
     setPGroupId(id);
-    setPTagId(purchaseGroups.find((g) => g.id === id)?.tags.find((t) => t.isDefault)?.id ?? "");
+    setPTagId(g?.tags.find((t) => t.isDefault)?.id ?? "");
+    setPCategoryId(g?.categories[0]?.id ?? "");
   };
   const [type, setType] = useState<"EXPENSE" | "INCOME">(initial?.type ?? "EXPENSE");
   // 金額由小計算機驅動：calc.input 就是輸入框裡的字，兩邊永遠一致
@@ -680,7 +689,7 @@ export function TransactionForm(props: {
               這是整個功能對記帳流程唯一的改動：多一列 checkbox，預設不勾。
               不勾就完全照舊；勾了才就地展開三排，不換頁、不中斷記帳。
               金額與日期沿用這筆記帳，不用再填一次。 */}
-          {type === "EXPENSE" && !initial && purchaseGroups.length > 0 && purchaseCategories.length > 0 && (
+          {type === "EXPENSE" && !initial && purchaseGroups.length > 0 && (
             <div>
               <button
                 type="button"
@@ -727,7 +736,7 @@ export function TransactionForm(props: {
                   <div>
                     <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">② 商品分類</p>
                     <div className="flex flex-wrap gap-2">
-                      {purchaseCategories.map((c) => (
+                      {(pGroup?.categories ?? []).map((c) => (
                         <button
                           key={c.id}
                           type="button"
