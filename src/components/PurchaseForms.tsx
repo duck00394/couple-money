@@ -4,11 +4,13 @@ import { useActionState, useState } from "react";
 import Link from "next/link";
 import {
   addFromTransactionAction, addKeywordAction, addManualAction, convertToManualAction,
-  createGroupAction, createTagAction, deleteGroupAction, deleteKeywordAction, deleteTagAction,
-  removeEntryAction, renameTagAction, updateEntryAction, updateGroupAction,
+  createCategoryAction, createGroupAction, createTagAction, deleteCategoryAction, deleteGroupAction,
+  deleteKeywordAction, deleteTagAction, removeEntryAction, renameCategoryAction, renameTagAction,
+  seedStarterAction, updateEntryAction, updateGroupAction,
 } from "@/app/actions/purchases";
 import { formatMoney, toInputString } from "@/lib/money";
 import { JOINT } from "@/server/domain/purchase";
+import type { ActionState } from "@/server/actions";
 import { ActionForm } from "./ActionForm";
 import { ArtIcon } from "./ArtIcon";
 import { Avatar, Button, Card, cx, DateInput, ErrorText, Field, Input } from "./ui";
@@ -24,6 +26,12 @@ export interface GroupOption {
   name: string;
   icon: string;
   tags: Array<{ id: string; name: string; isDefault: boolean }>;
+}
+/** 商品分類（吊娃／S娃／扭蛋／景品／一番賞／其他⋯⋯），整個帳本共用 */
+export interface CategoryOption {
+  id: string;
+  name: string;
+  isDefault: boolean;
 }
 
 /* ───────────────────────── 共用：歸屬與角色的 chip ───────────────────────── */
@@ -96,6 +104,36 @@ export function TagChips({
           )}
         >
           {t.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 商品分類 chip。跟角色是兩回事：這是「買的是什麼東西」，角色是「上面是誰」。 */
+export function CategoryChips({
+  categories, value, onChange, name = "categoryId",
+}: {
+  categories: CategoryOption[];
+  value: string;
+  onChange: (v: string) => void;
+  name?: string;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2" data-testid="category-chips">
+      <input type="hidden" name={name} value={value} />
+      {categories.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          aria-pressed={value === c.id}
+          onClick={() => onChange(c.id)}
+          className={cx(
+            "press rounded-full border-[1.5px] px-3 py-1.5 text-[13px] transition",
+            value === c.id ? "border-stone-800 bg-brand-500 font-semibold text-white shadow-xs" : "border-line bg-white text-stone-700",
+          )}
+        >
+          {c.name}
         </button>
       ))}
     </div>
@@ -322,21 +360,23 @@ export function KeywordBox({
  * 金額與日期沿用那筆記帳，所以這張表單只問作品、歸屬、角色。
  */
 export function AddFromTransactionForm({
-  transaction, groups, members, fixedGroupId, returnTo, detected,
+  transaction, groups, categories, members, fixedGroupId, returnTo, detected,
 }: {
   transaction: { id: string; title: string; amount: number; occurredOn: string };
   groups: GroupOption[];
+  categories: CategoryOption[];
   members: MemberOption[];
   /** 從作品頁進來時，作品由頁面脈絡決定，不再問 */
   fixedGroupId?: string;
   returnTo?: string;
-  /** 關鍵字猜到的作品與角色（只猜這兩個，不猜歸屬） */
-  detected?: { groupId: string; tagId: string; word: string } | null;
+  /** 關鍵字猜到的作品、商品分類與角色（這三個只是建議，歸屬永遠不猜） */
+  detected?: { groupId: string; categoryId: string | null; tagId: string; word: string } | null;
 }) {
   const [state, action, pending] = useActionState(addFromTransactionAction, undefined);
   const [groupId, setGroupId] = useState(fixedGroupId ?? detected?.groupId ?? groups[0]?.id ?? "");
   const group = groups.find((g) => g.id === groupId);
   const [tagId, setTagId] = useState(detected?.tagId ?? group?.tags.find((t) => t.isDefault)?.id ?? "");
+  const [categoryId, setCategoryId] = useState(detected?.categoryId ?? categories[0]?.id ?? "");
   const [ownerId, setOwnerId] = useState(JOINT);
 
   const pickGroup = (id: string) => {
@@ -369,6 +409,11 @@ export function AddFromTransactionForm({
       )}
 
       <div>
+        <p className="mb-1.5 text-sm font-medium text-stone-600">商品分類</p>
+        <CategoryChips categories={categories} value={categoryId} onChange={setCategoryId} />
+      </div>
+
+      <div>
         <p className="mb-1.5 text-sm font-medium text-stone-600">這東西是誰的</p>
         <OwnerChips members={members} value={ownerId} onChange={setOwnerId} />
         <p className="mt-1.5 text-xs text-stone-500">跟誰付錢無關，不會動到這筆記帳的分帳。</p>
@@ -390,7 +435,7 @@ export function AddFromTransactionForm({
       </Field>
 
       <ErrorText>{state?.error}</ErrorText>
-      <Button className="w-full" disabled={pending || !tagId} data-testid="add-purchase-submit">
+      <Button className="w-full" disabled={pending || !tagId || !categoryId} data-testid="add-purchase-submit">
         {pending ? "加入中…" : "加入購買紀錄"}
       </Button>
     </ActionForm>
@@ -401,9 +446,10 @@ export function AddFromTransactionForm({
  * 獨立的歷史購買。**不建立 Transaction**，所以不影響任何財務數字。
  */
 export function AddManualForm({
-  groups, members, fixedGroupId, today,
+  groups, categories, members, fixedGroupId, today,
 }: {
   groups: GroupOption[];
+  categories: CategoryOption[];
   members: MemberOption[];
   fixedGroupId?: string;
   today: string;
@@ -412,6 +458,7 @@ export function AddManualForm({
   const [groupId, setGroupId] = useState(fixedGroupId ?? groups[0]?.id ?? "");
   const group = groups.find((g) => g.id === groupId);
   const [tagId, setTagId] = useState(group?.tags.find((t) => t.isDefault)?.id ?? "");
+  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
   const [ownerId, setOwnerId] = useState(JOINT);
 
   const pickGroup = (id: string) => {
@@ -440,6 +487,11 @@ export function AddManualForm({
       <Field label="金額"><Input name="amount" inputMode="decimal" required placeholder="350" /></Field>
 
       <div>
+        <p className="mb-1.5 text-sm font-medium text-stone-600">商品分類</p>
+        <CategoryChips categories={categories} value={categoryId} onChange={setCategoryId} />
+      </div>
+
+      <div>
         <p className="mb-1.5 text-sm font-medium text-stone-600">這東西是誰的</p>
         <OwnerChips members={members} value={ownerId} onChange={setOwnerId} />
       </div>
@@ -452,7 +504,7 @@ export function AddManualForm({
       <Field label="備註（選填）"><Input name="note" maxLength={200} placeholder="在哪買的、有什麼特別的" /></Field>
 
       <ErrorText>{state?.error}</ErrorText>
-      <Button className="w-full" disabled={pending || !tagId} data-testid="add-manual-submit">
+      <Button className="w-full" disabled={pending || !tagId || !categoryId} data-testid="add-manual-submit">
         {pending ? "新增中…" : "新增購買紀錄"}
       </Button>
     </ActionForm>
@@ -462,14 +514,15 @@ export function AddManualForm({
 /* ───────────────────────── 編輯 ───────────────────────── */
 
 export function EditEntryForm({
-  entry, groups, members, returnTo,
+  entry, groups, categories, members, returnTo,
 }: {
   entry: {
-    id: string; groupId: string; tagId: string; ownerId: string | null; note: string | null;
+    id: string; groupId: string; categoryId: string; tagId: string; ownerId: string | null; note: string | null;
     title: string; amount: number; occurredOn: string; fromTransaction: boolean; transactionId: string | null;
     createdByName: string; updatedByName: string; createdAt: string; updatedAt: string;
   };
   groups: GroupOption[];
+  categories: CategoryOption[];
   members: MemberOption[];
   returnTo?: string;
 }) {
@@ -479,6 +532,7 @@ export function EditEntryForm({
   const [groupId, setGroupId] = useState(entry.groupId);
   const group = groups.find((g) => g.id === groupId);
   const [tagId, setTagId] = useState(entry.tagId);
+  const [categoryId, setCategoryId] = useState(entry.categoryId);
   const [ownerId, setOwnerId] = useState(entry.ownerId ?? JOINT);
 
   const pickGroup = (id: string) => {
@@ -535,6 +589,11 @@ export function EditEntryForm({
         </div>
 
         <div>
+          <p className="mb-1.5 text-sm font-medium text-stone-600">商品分類</p>
+          <CategoryChips categories={categories} value={categoryId} onChange={setCategoryId} />
+        </div>
+
+        <div>
           <p className="mb-1.5 text-sm font-medium text-stone-600">這東西是誰的</p>
           <OwnerChips members={members} value={ownerId} onChange={setOwnerId} />
           <p className="mt-1.5 text-xs text-stone-500">跟誰付錢無關，改這裡不會動到任何記帳。</p>
@@ -549,7 +608,7 @@ export function EditEntryForm({
 
         <ErrorText>{state?.error}</ErrorText>
         {state?.ok && <p className="text-sm text-brand-700">{state.ok}</p>}
-        <Button className="w-full" disabled={pending || !tagId}>{pending ? "儲存中…" : "儲存"}</Button>
+        <Button className="w-full" disabled={pending || !tagId || !categoryId}>{pending ? "儲存中…" : "儲存"}</Button>
       </ActionForm>
 
       <Card quiet className="space-y-1 p-3 text-xs text-stone-500">
@@ -609,5 +668,141 @@ export function VoidedEntryActions({ entry }: { entry: { id: string; title: stri
       </div>
       <ErrorText>{conv?.error ?? del?.error}</ErrorText>
     </div>
+  );
+}
+
+
+/* ───────────────────────── 商品分類管理 ───────────────────────── */
+
+export function CategoryRow({ category, canWrite }: { category: { id: string; name: string; isDefault: boolean; count: number }; canWrite: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [state, action, pending] = useActionState(renameCategoryAction, undefined);
+  const [del, delAction, delPending] = useActionState(deleteCategoryAction, undefined);
+
+  return (
+    <div className={cx("px-4 py-3", category.isDefault && "bg-brand-50")} data-testid="purchase-category-row">
+      <div className="flex items-center gap-2.5">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2 font-medium">
+            <span className="truncate">{category.name}</span>
+            {category.isDefault && (
+              <span className="shrink-0 rounded-full border-[1.5px] border-stone-800 bg-brand-500 px-2 py-0.5 text-[11px] font-bold text-white" data-testid="default-category-badge">
+                預設
+              </span>
+            )}
+          </p>
+          <p className="mt-0.5 text-xs text-stone-500">
+            {category.isDefault ? `刪除其他分類時放這裡 ・ ${category.count} 件` : `${category.count} 件`}
+          </p>
+        </div>
+        {canWrite && (
+          <>
+            <button type="button" onClick={() => setEditing((v) => !v)} className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-700">改名</button>
+            {/* 預設分類不給刪除鈕 */}
+            {!category.isDefault && (
+              <button type="button" onClick={() => setConfirming((v) => !v)} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-600 ring-1 ring-red-200" data-testid="delete-category-open">刪除</button>
+            )}
+          </>
+        )}
+      </div>
+
+      {editing && (
+        <ActionForm action={action} className="mt-2.5 flex gap-2">
+          <input type="hidden" name="id" value={category.id} />
+          <Input name="name" required maxLength={20} defaultValue={category.name} aria-label={`${category.name} 的新名稱`} className="h-10 text-sm" />
+          <Button variant="secondary" className="h-10 shrink-0 px-4 text-sm" disabled={pending}>儲存</Button>
+        </ActionForm>
+      )}
+      {editing && state?.error && <ErrorText>{state.error}</ErrorText>}
+
+      {confirming && !category.isDefault && (
+        <div className="mt-2.5 rounded-xl border-[1.5px] border-red-600 bg-red-50 p-3" data-testid="delete-category-confirm">
+          <p className="text-sm font-semibold text-red-700">刪除「{category.name}」？</p>
+          <p className="mt-1 text-xs leading-relaxed text-stone-600">
+            底下的 <b>{category.count} 筆購買紀錄會移到預設分類</b>，不會消失、作品與角色也不會變。
+          </p>
+          <div className="mt-2.5 grid grid-cols-[1fr_1.4fr] gap-2">
+            <Button type="button" variant="soft" className="h-10 text-sm" onClick={() => setConfirming(false)}>不刪除</Button>
+            <ActionForm action={delAction}>
+              <input type="hidden" name="id" value={category.id} />
+              <Button variant="danger" className="h-10 w-full text-sm" disabled={delPending} data-testid="delete-category-confirm-btn">
+                {delPending ? "刪除中…" : "刪除並移到預設"}
+              </Button>
+            </ActionForm>
+          </div>
+          <ErrorText>{del?.error}</ErrorText>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function NewCategoryForm() {
+  const [state, action, pending] = useActionState(createCategoryAction, undefined);
+  return (
+    <ActionForm action={action} className="flex gap-2 px-4 py-3">
+      <Input name="name" required maxLength={20} placeholder="新商品分類（例如：徽章）" aria-label="新商品分類" className="h-10 text-sm" />
+      <Button variant="soft" className="h-10 shrink-0 px-4 text-sm" disabled={pending} data-testid="create-category">
+        {pending ? "新增中…" : "＋ 新增"}
+      </Button>
+      <ErrorText>{state?.error}</ErrorText>
+    </ActionForm>
+  );
+}
+
+/** 空狀態的一鍵建立：吉伊卡哇、排球少年與它們的角色，外加六種商品分類。 */
+export function SeedStarterButton() {
+  const [state, action, pending] = useActionState<ActionState>(seedStarterAction, undefined);
+  return (
+    <ActionForm action={action}>
+      <Button variant="soft" className="w-full" disabled={pending} data-testid="seed-starter">
+        {pending ? "建立中…" : "建立預設分類（吉伊卡哇、排球少年）"}
+      </Button>
+      <ErrorText>{state?.error}</ErrorText>
+    </ActionForm>
+  );
+}
+
+/**
+ * 記帳之後的「要不要加入購買紀錄」詢問列。
+ *
+ * 關鍵字只負責提示，**按下「加入」才會真的建立**。按「不要」就只是把這個提示關掉，
+ * 不寫任何資料；同一筆交易之後要補登，還是可以從交易明細頁手動加入。
+ */
+export function SuggestBar({
+  suggestion, dismissTo,
+}: {
+  suggestion: { transactionId: string; groupName: string; categoryName: string | null; tagName: string; word: string };
+  dismissTo: string;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  if (dismissed) return null;
+  return (
+    <Card className="mb-3 border-brand-500" data-testid="purchase-suggest">
+      <div className="flex items-start gap-2.5">
+        <ArtIcon name="sparkles" size={18} className="mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold">偵測到「{suggestion.word}」，要加入購買紀錄嗎？</p>
+          <p className="mt-1 text-xs leading-relaxed text-stone-600">
+            建議放到 {suggestion.groupName}
+            {suggestion.categoryName ? ` ・ ${suggestion.categoryName}` : ""} ・ {suggestion.tagName}。
+            加入時還可以改，歸屬要自己選。
+          </p>
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-[1fr_1.4fr] gap-2">
+        <Button type="button" variant="soft" className="h-10 text-sm" onClick={() => setDismissed(true)} data-testid="suggest-no">
+          不要
+        </Button>
+        <Link
+          href={`/purchases/new?tx=${suggestion.transactionId}&from=${encodeURIComponent(dismissTo)}`}
+          className="press flex h-10 items-center justify-center rounded-xl border-[1.5px] border-stone-800 bg-brand-500 text-sm font-semibold text-white shadow-md"
+          data-testid="suggest-yes"
+        >
+          加入
+        </Link>
+      </div>
+    </Card>
   );
 }

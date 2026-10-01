@@ -44,7 +44,7 @@ describe("V3 A-2：獎勵提列", () => {
   });
 
   it("2. 提列：建立一筆 INCOME、帳戶餘額增加、餘額歸零、收入統計才增加", async () => {
-    const tx = await rewards.withdrawRewards(c.ctxA, { accountId: c.accA, clientRequestId: rid() });
+    const tx = await rewards.withdrawRewards(c.ctxA, { accountId: c.accA, occurredOn: D(20), clientRequestId: rid() });
 
     assert.equal(tx.type, "INCOME");
     assert.equal(tx.amount, $(150));
@@ -58,7 +58,7 @@ describe("V3 A-2：獎勵提列", () => {
   });
 
   it("3. 已提列的獎勵不會再被提列一次", async () => {
-    await rejects(rewards.withdrawRewards(c.ctxA, { accountId: c.accA, clientRequestId: rid() }), "REWARD_NOTHING");
+    await rejects(rewards.withdrawRewards(c.ctxA, { accountId: c.accA, occurredOn: D(20), clientRequestId: rid() }), "REWARD_NOTHING");
     assert.equal(await balanceOf(c.accA), $(150), "帳戶沒有再增加");
     assert.equal(await prisma.transaction.count({ where: { bookId: c.ctxA.book.id, type: "INCOME" } }), 1);
   });
@@ -67,8 +67,8 @@ describe("V3 A-2：獎勵提列", () => {
     await tasks.checkIn(c.ctxA, task, { today: D(5) });
     const req = rid();
     const [x, y] = await Promise.all([
-      rewards.withdrawRewards(c.ctxA, { accountId: c.accA, clientRequestId: req }),
-      rewards.withdrawRewards(c.ctxA, { accountId: c.accA, clientRequestId: req }),
+      rewards.withdrawRewards(c.ctxA, { accountId: c.accA, occurredOn: D(20), clientRequestId: req }),
+      rewards.withdrawRewards(c.ctxA, { accountId: c.accA, occurredOn: D(20), clientRequestId: req }),
     ]);
     assert.equal(x.id, y.id, "兩次拿到同一筆");
     assert.equal(await prisma.transaction.count({ where: { bookId: c.ctxA.book.id, type: "INCOME" } }), 2);
@@ -77,7 +77,7 @@ describe("V3 A-2：獎勵提列", () => {
   });
 
   it("5. 只能提列自己的獎勵：B 提列拿到的是 B 自己的金額", async () => {
-    const tx = await rewards.withdrawRewards(c.ctxB, { accountId: c.accB, clientRequestId: rid() });
+    const tx = await rewards.withdrawRewards(c.ctxB, { accountId: c.accB, occurredOn: D(20), clientRequestId: rid() });
     assert.equal(tx.amount, $(50), "B 只拿到自己的 $50，不會拿到 A 的");
     assert.equal(await bal(c.bId), 0);
     assert.equal(await balanceOf(c.accB), $(50));
@@ -86,7 +86,7 @@ describe("V3 A-2：獎勵提列", () => {
 
   it("6. 不能提列到另一半的個人帳戶", async () => {
     await tasks.checkIn(c.ctxA, task, { today: D(6) });
-    await rejects(rewards.withdrawRewards(c.ctxA, { accountId: c.accB, clientRequestId: rid() }), "REWARD_ACCOUNT_OWNER");
+    await rejects(rewards.withdrawRewards(c.ctxA, { accountId: c.accB, occurredOn: D(20), clientRequestId: rid() }), "REWARD_ACCOUNT_OWNER");
     assert.equal(await bal(c.aId), $(50), "失敗後餘額原封不動");
   });
 
@@ -96,7 +96,7 @@ describe("V3 A-2：獎勵提列", () => {
     await tasks.applyMissedPenalties(c.ctxA, D(9));
     assert.equal(await bal(c.aId), $(50) - $(20));
 
-    const tx = await rewards.withdrawRewards(c.ctxA, { accountId: c.joint, clientRequestId: rid() });
+    const tx = await rewards.withdrawRewards(c.ctxA, { accountId: c.joint, occurredOn: D(20), clientRequestId: rid() });
     assert.equal(tx.amount, $(30), "提列的是淨額（獎勵 $50 − 懲罰 $20）");
     assert.equal(await bal(c.aId), 0);
 

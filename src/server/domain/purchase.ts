@@ -117,6 +117,8 @@ export interface KeywordRule {
   groupId: string;
   /** null = 作品關鍵字，命中後落到該作品的預設角色 */
   tagId: string | null;
+  /** 命中時順便建議的商品分類；null = 這個關鍵字不管商品分類 */
+  categoryId?: string | null;
 }
 
 export interface KeywordHit {

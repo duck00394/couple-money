@@ -34,7 +34,9 @@ export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId
     /** 還沒付完的預購，記帳時可以直接選 */
     preorders,
     /** 購買紀錄的作品與角色；沒有作品時記帳頁那一列就不顯示 */
-    purchaseGroups,
+    purchaseGroups: purchaseGroups.groups,
+    /** 商品分類（整個帳本共用） */
+    purchaseCategories: purchaseGroups.categories,
   };
 }
 

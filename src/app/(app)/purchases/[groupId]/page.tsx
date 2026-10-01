@@ -8,109 +8,147 @@ import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { DomainError } from "@/server/domain/errors";
 import { JOINT, ownerLabel } from "@/server/domain/purchase";
-import { getGroupDetail } from "@/server/services/purchases";
+import { getGroupDetail, type LevelRow } from "@/server/services/purchases";
 
 /**
- * 作品內頁。
+ * 作品內頁，逐層往下：商品分類 → 共同/A/B → 角色 → 實際品項。
  *
- * 作品這一層已經由頁面標題決定，所以**這裡不再出現作品篩選列**，
- * 每一列也不重複作品名。剩下兩個互不相干的維度：
- *   第一排 歸屬（全部／共同／A／B）
- *   第二排 角色（全部／預設角色／各角色）
- * 兩個可以同時套用，件數與金額跟著一起變。
+ * 層級用 query 參數表示（?cat=&owner=&tag=），每進一層才顯示下一層，
+ * 不會一次把四層全部攤開。每一層都保留「全部」，而且每一層的件數與金額
+ * 都算在「上面已經選定」的範圍內。
+ *
+ * 作品這一層由頁面標題決定，所以畫面上不再出現作品選單，每一列也不重複作品名。
  */
 export default async function PurchaseGroupPage({ params, searchParams }: PageProps<"/purchases/[groupId]">) {
   const { ctx } = await getAppContext();
   const { groupId } = await params;
   const sp = await searchParams;
+  const cat = typeof sp.cat === "string" ? sp.cat : "";
   const owner = typeof sp.owner === "string" ? sp.owner : "";
-  const tagId = typeof sp.tag === "string" ? sp.tag : "";
+  const tag = typeof sp.tag === "string" ? sp.tag : "";
 
   let detail;
   try {
-    detail = await getGroupDetail(ctx, groupId, { owner: owner || null, tagId: tagId || null });
+    detail = await getGroupDetail(ctx, groupId, { categoryId: cat || null, owner: owner || null, tagId: tag || null });
   } catch (e) {
     if (e instanceof DomainError) notFound();
     throw e;
   }
 
-  const href = (next: { owner?: string; tag?: string }) => {
-    const o = next.owner !== undefined ? next.owner : owner;
-    const t = next.tag !== undefined ? next.tag : tagId;
+  /** 目前這一層：沒選商品分類就停在第二層，以此類推 */
+  const level = !cat ? "category" : !owner ? "owner" : "tag";
+  const url = (next: { cat?: string; owner?: string; tag?: string }) => {
     const q = new URLSearchParams();
+    const c = next.cat !== undefined ? next.cat : cat;
+    const o = next.owner !== undefined ? next.owner : owner;
+    const t = next.tag !== undefined ? next.tag : tag;
+    if (c) q.set("cat", c);
     if (o) q.set("owner", o);
     if (t) q.set("tag", t);
     return `/purchases/${groupId}${q.size ? `?${q}` : ""}`;
   };
-  const chip = (active: boolean, extra = "") =>
-    cx(
-      "press rounded-full border-[1.5px] px-3 py-1.5 text-[13px] transition",
-      active ? "border-stone-800 bg-brand-500 font-semibold text-white shadow-xs" : "border-line bg-white text-stone-700",
-      extra,
-    );
-  const ownerOptions = [{ id: JOINT, name: "共同", color: "#f3e3be", url: null as string | null }, ...ctx.members.map((m) => ({ id: m.userId, name: m.nickname, color: m.avatarColor, url: m.avatarUrl }))];
+  // 上一層：一層一層退回去，最後回到作品列表
+  const back = tag || owner ? (owner ? url({ owner: "", tag: "" }) : url({ cat: "", owner: "", tag: "" })) : cat ? url({ cat: "", owner: "", tag: "" }) : "/purchases";
+
+  const catName = detail.categories.find((c) => c.id === cat)?.name ?? "";
   const ownerName = owner === JOINT ? "共同" : owner ? ownerLabel(owner, ctx.members) : "";
-  const tagName = detail.tags.find((t) => t.id === tagId)?.name ?? "";
-  const label = [ownerName && `${ownerName}的`, tagName || "全部角色"].filter(Boolean).join(" ・ ");
+  const tagName = detail.tags.find((t) => t.id === tag)?.name ?? "";
+  const crumb = [detail.name, catName, ownerName, tagName].filter(Boolean).join(" ・ ");
+  const colorOf = (id: string) => (id === JOINT ? "#f3e3be" : ctx.members.find((m) => m.userId === id)?.avatarColor ?? "#eee");
+
+  /** 一層的清單：每一列都顯示件數與金額 */
+  const levelList = (rows: LevelRow[], hrefOf: (r: LevelRow) => string, withAvatar = false) => (
+    <Card className="divide-y divide-line p-0">
+      {rows.map((r) => (
+        <Link key={r.id} href={hrefOf(r)} className="press flex items-center gap-3 px-4 py-3.5" data-testid="purchase-level-row">
+          {withAvatar && <Avatar name={r.name} color={colorOf(r.id)} size={26} />}
+          <p className="min-w-0 flex-1 truncate font-medium">
+            {r.name}
+            {r.isDefault && <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-bold text-brand-700">預設</span>}
+          </p>
+          <div className="shrink-0 text-right">
+            <p className="amount text-[15px]">{formatMoney(r.totals.amount)}</p>
+            <p className="mt-0.5 text-[11px] text-stone-500">{r.totals.count} 件</p>
+          </div>
+          <span className="text-lg text-stone-400">›</span>
+        </Link>
+      ))}
+    </Card>
+  );
 
   return (
     <>
       <PageHeader
         title={detail.name}
-        back="/purchases"
+        back={back}
         right={<Link href={`/purchases/manage/${groupId}`} className="text-[13px] font-semibold text-brand-600">管理</Link>}
       />
       <div className="px-4">
-        {/* 第一排：歸屬。「全部」＝共同 + A + B，用深色實心與後面的細線跟其他選項分開 */}
-        <div className="rounded-2xl border border-line bg-white p-2.5" data-testid="owner-filter">
-          <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">歸屬</p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link href={href({ owner: "" })} className={chip(!owner, owner ? "bg-stone-100" : "")} aria-current={!owner ? "true" : undefined}>全部</Link>
-            <span className="mx-1 h-5 w-px bg-line" />
-            {ownerOptions.map((o) => (
-              <Link key={o.id} href={href({ owner: o.id })} className={cx(chip(owner === o.id), "flex items-center gap-1.5")}>
-                <Avatar name={o.name} color={o.color} size={17} src={o.url} />
-                {o.name}
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* 第二排：角色。「全部」是篩選，預設角色是真的分類（虛線框），兩者刻意長得不一樣 */}
-        <div className="mt-2 rounded-2xl border border-line bg-white p-2.5" data-testid="tag-filter">
-          <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">角色</p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Link href={href({ tag: "" })} className={chip(!tagId, tagId ? "bg-stone-100" : "")}>全部</Link>
-            <span className="mx-1 h-5 w-px bg-line" />
-            {detail.tags.map((t) => (
-              <Link
-                key={t.id}
-                href={href({ tag: t.id })}
-                className={cx(
-                  chip(tagId === t.id),
-                  t.isDefault && tagId !== t.id && "border-dashed border-brand-500 bg-brand-50 text-brand-700",
-                )}
-                data-testid={t.isDefault ? "default-tag-chip" : undefined}
-              >
-                {t.name}
-              </Link>
-            ))}
-          </div>
-        </div>
-        <p className="mt-2 px-1 text-[11px] leading-relaxed text-stone-400">
-          兩個「全部」是不同維度：上面是「不分誰的」，下面是「不分角色」。
-        </p>
-
-        <Card className="mt-3 flex items-baseline gap-3">
-          <div className="flex-1">
-            <p className="text-xs font-semibold text-stone-500">{label}</p>
+        {/* 目前在哪一條路徑上，以及這條路徑的小計 */}
+        <Card className="flex items-baseline gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-semibold text-stone-500" data-testid="purchase-crumb">{crumb}</p>
             <p className="amount-lg mt-1 text-[30px]" data-testid="purchase-total">{formatMoney(detail.totals.amount)}</p>
           </div>
-          <div className="text-right">
+          <div className="shrink-0 text-right">
             <p className="tnum text-base font-bold" data-testid="purchase-count">{detail.totals.count} 件</p>
-            <p className="mt-0.5 text-[11px] text-stone-500">總計跟著篩選變</p>
+            <p className="mt-0.5 text-[11px] text-stone-500">目前這一層的小計</p>
           </div>
         </Card>
+
+        {level === "category" && (
+          <>
+            <SectionTitle right={<Link href={url({ cat: "" })} className="text-xs font-semibold text-stone-500">看全部品項 ↓</Link>}>
+              商品分類
+            </SectionTitle>
+            {levelList(detail.categories, (r) => url({ cat: r.id, owner: "", tag: "" }))}
+          </>
+        )}
+
+        {level === "owner" && (
+          <>
+            <SectionTitle>誰的</SectionTitle>
+            {levelList(detail.owners, (r) => url({ owner: r.id, tag: "" }), true)}
+            <p className="mt-2 px-1 text-[11px] leading-relaxed text-stone-400">
+              「共同」是兩個人的收藏，<b className="text-stone-500">不是付款人</b>。誰出的錢在那筆記帳裡。
+            </p>
+          </>
+        )}
+
+        {level === "tag" && (
+          <>
+            <SectionTitle>角色</SectionTitle>
+            <div className="flex flex-wrap gap-1.5" data-testid="tag-filter">
+              <Link
+                href={url({ tag: "" })}
+                className={cx(
+                  "press rounded-full border-[1.5px] px-3 py-1.5 text-[13px]",
+                  !tag ? "border-stone-800 bg-stone-800 font-semibold text-white" : "border-line bg-white text-stone-700",
+                )}
+              >
+                全部
+              </Link>
+              {detail.tags.map((t) => (
+                <Link
+                  key={t.id}
+                  href={url({ tag: t.id })}
+                  className={cx(
+                    "press rounded-full border-[1.5px] px-3 py-1.5 text-[13px]",
+                    tag === t.id
+                      ? "border-stone-800 bg-brand-500 font-semibold text-white shadow-xs"
+                      : t.isDefault
+                        ? "border-dashed border-brand-500 bg-brand-50 text-brand-700"
+                        : "border-line bg-white text-stone-700",
+                  )}
+                  data-testid={t.isDefault ? "default-tag-chip" : undefined}
+                >
+                  {t.name}
+                  <span className="ml-1.5 text-[11px] opacity-70">{t.totals.count}</span>
+                </Link>
+              ))}
+            </div>
+          </>
+        )}
 
         {detail.voided.length > 0 && (
           <>
@@ -129,15 +167,12 @@ export default async function PurchaseGroupPage({ params, searchParams }: PagePr
                 </div>
               ))}
             </Card>
-            <p className="mt-2 px-1 text-[11px] leading-relaxed text-stone-400">
-              記帳被作廢代表那筆錢沒有真的花出去，所以不能再算進金額；但東西可能真的有買到，所以也不自己幫你刪掉。
-            </p>
           </>
         )}
 
-        <SectionTitle>品項</SectionTitle>
+        <SectionTitle>品項 ・ {detail.entries.length} 件</SectionTitle>
         {detail.entries.length === 0 ? (
-          <Empty icon="shopping-bag">這個篩選條件下還沒有購買紀錄</Empty>
+          <Empty icon="shopping-bag">這一層還沒有購買紀錄</Empty>
         ) : (
           <Card className="divide-y divide-line p-0">
             {detail.entries.map((e) => (
@@ -148,18 +183,16 @@ export default async function PurchaseGroupPage({ params, searchParams }: PagePr
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{e.title}</p>
                   <span className="mt-0.5 flex items-center gap-1.5 text-xs text-stone-500">
-                    {/* 歸屬選「全部」時才顯示是誰的；選定某個人之後就不再重複 */}
+                    {/* 已經選定的那幾層就不再重複顯示 */}
+                    {!cat && <>{e.categoryName} ・ </>}
                     {!owner && (
                       <>
-                        <Avatar
-                          name={ownerLabel(e.ownerId, ctx.members)}
-                          color={e.ownerId === null ? "#f3e3be" : ctx.members.find((m) => m.userId === e.ownerId)?.avatarColor ?? "#eee"}
-                          size={15}
-                        />
+                        <Avatar name={ownerLabel(e.ownerId, ctx.members)} color={colorOf(e.ownerId ?? JOINT)} size={15} />
                         {ownerLabel(e.ownerId, ctx.members)} ・{" "}
                       </>
                     )}
-                    {e.tagName} ・ {toDateKey(e.occurredAt).slice(5).replace("-", "/")}
+                    {!tag && <>{e.tagName} ・ </>}
+                    {toDateKey(e.occurredAt).slice(5).replace("-", "/")}
                   </span>
                 </div>
                 <span className="amount shrink-0">{formatMoney(e.amount)}</span>

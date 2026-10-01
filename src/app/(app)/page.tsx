@@ -2,11 +2,13 @@ import Link from "next/link";
 import { DebtCard } from "@/components/DebtCard";
 import { TaskRow } from "@/components/TaskRow";
 import { TxRow } from "@/components/TxRow";
+import { SuggestBar } from "@/components/PurchaseForms";
 import { Badge, Card, Empty, SectionTitle, TwoPartProgress } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listFunds } from "@/server/services/funds";
 import { getBalances, listTransactions, monthSummary } from "@/server/services/ledger";
+import { suggestForTransaction } from "@/server/services/purchases";
 import { applyMissedPenalties, taskBoard, todayRewards } from "@/server/services/tasks";
 import { rewardBalance } from "@/server/services/rewards";
 import { pendingRecurring } from "@/server/services/recurring";
@@ -24,7 +26,8 @@ import { ArtIcon, ArtImage, ArtTile } from "@/components/ArtIcon";
  * 順序就是「每天早上打開 App 會想知道的事」：
  *   今天要做什麼 → 今天賺了多少 → 錢存到哪了 → 最近花了什麼 → 本月總覽
  */
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: PageProps<"/">) {
+  const suggestSp = await searchParams;
   const { ctx } = await getAppContext();
   await applyMissedPenalties(ctx);
   const now = new Date();
@@ -35,7 +38,10 @@ export default async function DashboardPage() {
   const todayLabel = new Intl.DateTimeFormat("zh-TW", {
     timeZone: APP.timeZone, month: "long", day: "numeric", weekday: "short",
   }).format(new Date());
-  const [balances, summary, board, rewards, myReward, funds, dueRecurring, budgets, todays] = await Promise.all([
+  // 記帳剛存完、關鍵字覺得像購買紀錄時，用 ?suggest= 把那筆帶過來問一次。
+  // 這裡只是「問」：使用者按「加入」才會真的建立。
+  const suggestTxId = typeof suggestSp.suggest === "string" ? suggestSp.suggest : "";
+  const [balances, summary, board, rewards, myReward, funds, dueRecurring, budgets, todays, suggestion] = await Promise.all([
     getBalances(ctx),
     monthSummary(ctx),
     taskBoard(ctx),
@@ -45,6 +51,7 @@ export default async function DashboardPage() {
     pendingRecurring(ctx),
     budgetSummary(ctx, month),
     listTransactions(ctx, { from: today.start, to: today.end }),
+    suggestTxId ? suggestForTransaction(ctx, suggestTxId) : Promise.resolve(null),
   ]);
   const [available, preorders, historyRows] = await Promise.all([
     availableMoney(ctx),
@@ -65,6 +72,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="px-4 pt-5">
+      {suggestion && (
+        <SuggestBar suggestion={{ ...suggestion, transactionId: suggestTxId }} dismissTo="/" />
+      )}
       {/* ── 滿版場景：背景、招牌與角色都是可替換的 <img> 素材 ── */}
       <header className="-mx-4 -mt-5 mb-4">
         <div className="relative h-[148px] overflow-hidden border-b-2 border-stone-800">

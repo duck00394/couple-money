@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getAppContext } from "@/server/context";
 import { DomainError } from "@/server/domain/errors";
 import { createTransaction, deleteTransaction, updateTransaction } from "@/server/services/ledger";
-import { addFromTransaction, autoAttach } from "@/server/services/purchases";
+import { addFromTransaction, suggestForTransaction } from "@/server/services/purchases";
 import { toOwnerId } from "@/server/domain/purchase";
 import { str, toActionState, type ActionState } from "@/server/actions";
 
@@ -28,7 +28,12 @@ const payloadSchema = z.object({
   preorderId: z.string().nullable().optional(),
   // 購買紀錄（V12）。完全不參與金額計算，只決定這筆消費要不要也記進購買紀錄。
   purchase: z
-    .object({ groupId: z.string().min(1), tagId: z.string().min(1), ownerId: z.string().nullable() })
+    .object({
+      groupId: z.string().min(1),
+      categoryId: z.string().min(1),
+      tagId: z.string().min(1),
+      ownerId: z.string().nullable(),
+    })
     .nullable()
     .optional(),
   tags: z.array(z.string().max(40)).max(20).optional(),
@@ -50,6 +55,8 @@ function parse(form: FormData) {
 export async function saveTransactionAction(_: ActionState, form: FormData): Promise<ActionState> {
   /** 記帳存檔之後才決定購買紀錄，寫在這裡讓 toast 有東西可以講 */
   let purchaseNote = "";
+  /** 關鍵字猜到東西的那筆交易 id：只是建議，使用者按「加入」才會真的建立 */
+  let suggestedTxId = "";
   const state = await toActionState(async () => {
     const { ctx } = await getAppContext();
     const { id, version, purchase, ...input } = parse(form);
@@ -61,21 +68,25 @@ export async function saveTransactionAction(_: ActionState, form: FormData): Pro
     if (input.type !== "EXPENSE") return;
     try {
       if (purchase) {
-        // 使用者自己勾了「加入購買紀錄」：照他選的作品、歸屬、角色
+        // 使用者自己勾了「加入購買紀錄」：照他選的作品、商品分類、歸屬、角色
         await addFromTransaction(ctx, created.id, {
           groupId: purchase.groupId,
+          categoryId: purchase.categoryId,
           tagId: purchase.tagId,
           ownerId: toOwnerId(purchase.ownerId),
         });
         purchaseNote = "，已加入購買紀錄";
       } else {
-        // 沒勾就交給關鍵字。**只猜作品與角色，歸屬一律共同**，不從付款人推定。
-        const auto = await autoAttach(ctx, created.id);
-        if (auto) purchaseNote = "，已自動加入購買紀錄";
+        // 沒勾就問關鍵字「像不像」，但**只給建議、不寫入**。
+        // 關鍵字命中不等於使用者想收藏（展覽門票也會命中作品名），
+        // 所以這裡只把建議帶回畫面，由使用者按「加入」才真的建立。
+        const hit = await suggestForTransaction(ctx, created.id);
+        if (hit) suggestedTxId = created.id;
       }
     } catch {
       // 購買紀錄失敗絕對不能讓記帳跟著失敗 —— 錢已經記好了，這只是附帶的整理
       purchaseNote = "";
+      suggestedTxId = "";
     }
   });
   if (state?.error) return state;
@@ -85,7 +96,10 @@ export async function saveTransactionAction(_: ActionState, form: FormData): Pro
   if (str(form, "stay") === "1" && !str(form, "id")) return { ok: `已記下來${purchaseNote}` };
   // 只接受站內路徑，避免開放式重新導向
   const returnTo = str(form, "returnTo");
-  redirect(returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/transactions");
+  const to = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/transactions";
+  // 關鍵字猜到東西時，用 query 把「要不要加入」帶到目的頁問一次。
+  // 刻意不在這裡直接建立：命中關鍵字不等於使用者想收藏。
+  redirect(suggestedTxId ? `${to}${to.includes("?") ? "&" : "?"}suggest=${suggestedTxId}` : to);
 }
 
 export async function deleteTransactionAction(_: ActionState, form: FormData): Promise<ActionState> {

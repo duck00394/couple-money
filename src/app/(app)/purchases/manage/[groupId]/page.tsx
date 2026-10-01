@@ -36,7 +36,7 @@ export default async function PurchaseManageGroupPage({ params }: PageProps<"/pu
         <SectionTitle>角色</SectionTitle>
         <Card className="divide-y divide-line p-0">
           {detail.tags.map((t) => (
-            <TagRow key={t.id} tag={t} groupId={groupId} canWrite={ctx.canWrite} />
+            <TagRow key={t.id} tag={{ id: t.id, name: t.name, isDefault: !!t.isDefault, count: t.totals.count }} groupId={groupId} canWrite={ctx.canWrite} />
           ))}
           {ctx.canWrite && <NewTagForm groupId={groupId} />}
         </Card>

@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { ArtIcon } from "@/components/ArtIcon";
-import { NewGroupForm } from "@/components/PurchaseForms";
+import { CategoryRow, NewCategoryForm, NewGroupForm } from "@/components/PurchaseForms";
 import { Card, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
-import { listGroups } from "@/server/services/purchases";
+import { listCategories, listGroups } from "@/server/services/purchases";
+import { prisma } from "@/server/db";
 
 /**
  * 分類管理・作品列表。
@@ -14,7 +15,12 @@ import { listGroups } from "@/server/services/purchases";
  */
 export default async function PurchaseManagePage() {
   const { ctx } = await getAppContext();
-  const groups = await listGroups(ctx);
+  const [groups, categories, counts] = await Promise.all([
+    listGroups(ctx),
+    listCategories(ctx),
+    prisma.purchaseEntry.groupBy({ by: ["categoryId"], where: { bookId: ctx.book.id }, _count: { _all: true } }),
+  ]);
+  const countOf = new Map(counts.map((c) => [c.categoryId, c._count._all]));
 
   return (
     <>
@@ -58,6 +64,19 @@ export default async function PurchaseManagePage() {
             <Card><NewGroupForm /></Card>
           </>
         )}
+
+        {/* 商品分類是整個帳本共用的：吉伊卡哇的吊娃與排球少年的吊娃是同一種商品類型 */}
+        <SectionTitle right={<span className="text-xs text-stone-400">所有作品共用</span>}>商品分類</SectionTitle>
+        <Card className="divide-y divide-line p-0">
+          {categories.map((c) => (
+            <CategoryRow key={c.id} category={{ ...c, count: countOf.get(c.id) ?? 0 }} canWrite={ctx.canWrite} />
+          ))}
+          {ctx.canWrite && <NewCategoryForm />}
+        </Card>
+        <p className="mt-2 px-1 text-[11px] leading-relaxed text-stone-400">
+          標「預設」的那個只有改名、沒有刪除：刪掉其他分類時，底下的購買紀錄要移到它那裡。
+          商品分類是「買的是什麼東西」，角色是「上面是誰」，兩者分開管理。
+        </p>
 
         <p className="mt-5 rounded-xl bg-stone-100 px-3 py-2.5 text-xs leading-relaxed text-stone-600">
           <b className="text-stone-700">有購買紀錄的作品不能直接刪除</b><br />

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArtIcon } from "@/components/ArtIcon";
+import { SeedStarterButton } from "@/components/PurchaseForms";
 import { Avatar, Card, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
@@ -36,9 +37,13 @@ export default async function PurchasesPage() {
               </span>
             </Empty>
             <div className="space-y-2.5">
-              <LinkButton href="/purchases/new" className="w-full">＋ 新增購買紀錄</LinkButton>
-              <LinkButton href="/purchases/manage" variant="soft" className="w-full">先建立作品分類</LinkButton>
+              {ctx.canWrite && <SeedStarterButton />}
+              <LinkButton href="/purchases/manage" variant="soft" className="w-full">自己建立作品分類</LinkButton>
             </div>
+            <p className="mt-3 text-center text-xs leading-relaxed text-stone-400">
+              一鍵建立會附上吉伊卡哇、排球少年與它們的角色，<br />以及吊娃／S娃／扭蛋／景品／一番賞／其他六種商品分類。<br />
+              全部都可以改名、刪除，也可以自己再加。
+            </p>
           </>
         ) : (
           <>

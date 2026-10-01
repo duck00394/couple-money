@@ -14,7 +14,7 @@ import { getEntry, optionsForForm } from "@/server/services/purchases";
 export default async function PurchaseEntryPage({ params }: PageProps<"/purchases/entry/[id]">) {
   const { ctx } = await getAppContext();
   const { id } = await params;
-  const [entry, groups] = await Promise.all([getEntry(ctx, id), optionsForForm(ctx)]);
+  const [entry, options] = await Promise.all([getEntry(ctx, id), optionsForForm(ctx)]);
   if (!entry) notFound();
 
   const nameOf = (userId: string) => ctx.members.find((m) => m.userId === userId)?.nickname ?? "已離開的成員";
@@ -28,6 +28,7 @@ export default async function PurchaseEntryPage({ params }: PageProps<"/purchase
           entry={{
             id: entry.id,
             groupId: entry.groupId,
+            categoryId: entry.categoryId,
             tagId: entry.tagId,
             ownerId: entry.ownerId,
             note: entry.note,
@@ -41,7 +42,8 @@ export default async function PurchaseEntryPage({ params }: PageProps<"/purchase
             createdAt: stamp(entry.createdAt),
             updatedAt: stamp(entry.updatedAt),
           }}
-          groups={groups}
+          groups={options.groups}
+          categories={options.categories}
           members={ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname, avatarColor: m.avatarColor, avatarUrl: m.avatarUrl }))}
           returnTo={`/purchases/${entry.groupId}`}
         />

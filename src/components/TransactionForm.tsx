@@ -75,6 +75,8 @@ export function TransactionForm(props: {
   stayDisabled?: boolean;
   /** 購買紀錄的作品與角色。空陣列＝還沒建立任何作品，那一列就不顯示 */
   purchaseGroups?: Array<{ id: string; name: string; icon: string; tags: Array<{ id: string; name: string; isDefault: boolean }> }>;
+  /** 商品分類（吊娃／扭蛋／一番賞⋯⋯），整個帳本共用 */
+  purchaseCategories?: Array<{ id: string; name: string; isDefault: boolean }>;
 }) {
   const { me, partner, accounts, categories, today, initial } = props;
   const members = partner ? [me, partner] : [me];
@@ -85,6 +87,8 @@ export function TransactionForm(props: {
   const [pGroupId, setPGroupId] = useState(purchaseGroups[0]?.id ?? "");
   const pGroup = purchaseGroups.find((g) => g.id === pGroupId);
   const [pTagId, setPTagId] = useState(purchaseGroups[0]?.tags.find((t) => t.isDefault)?.id ?? "");
+  const purchaseCategories = props.purchaseCategories ?? [];
+  const [pCategoryId, setPCategoryId] = useState(purchaseCategories[0]?.id ?? "");
   // 歸屬預設「共同」，而且**永遠不從付款人推定** —— 付款人與購買歸屬是兩回事
   const [pOwnerId, setPOwnerId] = useState(JOINT);
   const pickPurchaseGroup = (id: string) => {
@@ -198,8 +202,8 @@ export function TransactionForm(props: {
     fundAccountId: type === "EXPENSE" && fundId && fundAccountId ? fundAccountId : null,
     preorderId: type === "EXPENSE" && preorderId ? preorderId : null,
     purchase:
-      type === "EXPENSE" && !initial && wantPurchase && pGroupId && pTagId
-        ? { groupId: pGroupId, tagId: pTagId, ownerId: pOwnerId }
+      type === "EXPENSE" && !initial && wantPurchase && pGroupId && pCategoryId && pTagId
+        ? { groupId: pGroupId, categoryId: pCategoryId, tagId: pTagId, ownerId: pOwnerId }
         : null,
     id: initial?.id,
     version: initial?.version,
@@ -676,7 +680,7 @@ export function TransactionForm(props: {
               這是整個功能對記帳流程唯一的改動：多一列 checkbox，預設不勾。
               不勾就完全照舊；勾了才就地展開三排，不換頁、不中斷記帳。
               金額與日期沿用這筆記帳，不用再填一次。 */}
-          {type === "EXPENSE" && !initial && purchaseGroups.length > 0 && (
+          {type === "EXPENSE" && !initial && purchaseGroups.length > 0 && purchaseCategories.length > 0 && (
             <div>
               <button
                 type="button"
@@ -721,7 +725,26 @@ export function TransactionForm(props: {
                     </div>
                   </div>
                   <div>
-                    <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">② 歸屬</p>
+                    <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">② 商品分類</p>
+                    <div className="flex flex-wrap gap-2">
+                      {purchaseCategories.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          aria-pressed={pCategoryId === c.id}
+                          onClick={() => setPCategoryId(c.id)}
+                          className={cx(
+                            "press rounded-full border-[1.5px] px-3 py-1.5 text-[13px] transition",
+                            pCategoryId === c.id ? "border-stone-800 bg-brand-500 font-semibold text-white shadow-xs" : "border-line bg-white text-stone-700",
+                          )}
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">③ 歸屬</p>
                     <OwnerChips
                       members={members.map((m) => ({ userId: m.userId, nickname: m.nickname, avatarColor: "#ffd9a3", avatarUrl: null }))}
                       value={pOwnerId}
@@ -730,7 +753,7 @@ export function TransactionForm(props: {
                     />
                   </div>
                   <div>
-                    <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">③ 角色</p>
+                    <p className="mb-1.5 text-[10.5px] font-extrabold tracking-wider text-stone-400">④ 角色</p>
                     <TagChips tags={pGroup?.tags ?? []} value={pTagId} onChange={setPTagId} name="purchaseTagUnused" />
                   </div>
                   <p className="border-t border-dashed border-line pt-2.5 text-[11.5px] leading-relaxed text-stone-500">

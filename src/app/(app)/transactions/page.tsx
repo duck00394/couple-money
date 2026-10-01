@@ -2,12 +2,14 @@ import Link from "next/link";
 import { BatchCheckbox, BatchProvider } from "@/components/BatchBar";
 import { FilterSheet } from "@/components/FilterSheet";
 import { TxRow } from "@/components/TxRow";
+import { SuggestBar } from "@/components/PurchaseForms";
 import { Card, Empty, PageHeader } from "@/components/ui";
 import { dateHeading, toDateKey } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { activeFilterKeys, filterToQuery, parseFilter, SEARCH_KIND_LABEL, type TransactionFilter } from "@/server/domain/search";
 import { searchOptions, searchTransactions, type SearchItem } from "@/server/services/search";
+import { suggestForTransaction } from "@/server/services/purchases";
 import { pendingRecurring } from "@/server/services/recurring";
 import { ArtIcon } from "@/components/ArtIcon";
 
@@ -18,10 +20,12 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/tra
   const sp = await searchParams;
   const filter = parseFilter(sp);
   const limit = Math.min(1000, Math.max(PAGE, Number(sp.limit) || PAGE));
-  const [{ items, totals }, options, duePending] = await Promise.all([
+  const suggestTxId = typeof sp.suggest === "string" ? sp.suggest : "";
+  const [{ items, totals }, options, duePending, suggestion] = await Promise.all([
     searchTransactions(ctx, filter, { take: limit }),
     searchOptions(ctx),
     pendingRecurring(ctx),
+    suggestTxId ? suggestForTransaction(ctx, suggestTxId) : Promise.resolve(null),
   ]);
   const active = activeFilterKeys(filter);
   const filtering = active.length > 0;
@@ -55,6 +59,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/tra
         right={<Link href="/transactions/new?from=/transactions" className="press rounded-full bg-brand-200 ring-1 ring-brand-400/60 px-3.5 py-2 text-sm font-semibold text-stone-800 shadow-sm active:bg-brand-300">＋ 記一筆</Link>}
       />
       <div className="px-4">
+        {suggestion && <SuggestBar suggestion={{ ...suggestion, transactionId: suggestTxId }} dismissTo="/transactions" />}
         {/* key：條件改變時重建，讓表單預設值跟著目前條件 */}
         <FilterSheet key={query} filter={filter} activeCount={active.length} options={options} />
 

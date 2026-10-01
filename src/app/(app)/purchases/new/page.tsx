@@ -5,7 +5,7 @@ import { Card, cx, Empty, LinkButton, PageHeader, SectionTitle } from "@/compone
 import { toDateKey } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
-import { listAddableTransactions, optionsForForm } from "@/server/services/purchases";
+import { listAddableTransactions, optionsForForm, suggestForTransaction } from "@/server/services/purchases";
 
 /**
  * 新增購買紀錄。
@@ -20,10 +20,14 @@ export default async function NewPurchasePage({ searchParams }: PageProps<"/purc
   const from = typeof sp.tx === "string" ? sp.tx : "";
   const mode = sp.mode === "manual" ? "manual" : "tx";
 
-  const [groups, addable] = await Promise.all([optionsForForm(ctx), listAddableTransactions(ctx)]);
+  const [options, addable] = await Promise.all([optionsForForm(ctx), listAddableTransactions(ctx)]);
+  const { groups, categories } = options;
   const group = fixedGroupId ? groups.find((g) => g.id === fixedGroupId) : undefined;
   const members = ctx.members.map((m) => ({ userId: m.userId, nickname: m.nickname, avatarColor: m.avatarColor, avatarUrl: m.avatarUrl }));
   const picked = addable.find((t) => t.id === from);
+  // 從「偵測到⋯⋯要加入嗎」按進來的：把關鍵字猜到的作品／商品分類／角色當預選值。
+  // 它只是預選，使用者按下送出之前都可以改，歸屬更是完全不猜。
+  const suggestion = picked ? await suggestForTransaction(ctx, picked.id) : null;
 
   if (groups.length === 0) {
     return (
@@ -53,8 +57,10 @@ export default async function NewPurchasePage({ searchParams }: PageProps<"/purc
           <AddFromTransactionForm
             transaction={{ id: picked.id, title: picked.title, amount: picked.amount, occurredOn: toDateKey(picked.occurredAt) }}
             groups={groups}
+            categories={categories}
             members={members}
             fixedGroupId={fixedGroupId}
+            detected={suggestion}
           />
         ) : (
           <>
@@ -65,7 +71,7 @@ export default async function NewPurchasePage({ searchParams }: PageProps<"/purc
 
             {mode === "manual" ? (
               <div className="mt-4">
-                <AddManualForm groups={groups} members={members} fixedGroupId={fixedGroupId} today={toDateKey(new Date())} />
+                <AddManualForm groups={groups} categories={categories} members={members} fixedGroupId={fixedGroupId} today={toDateKey(new Date())} />
               </div>
             ) : (
               <>

@@ -107,8 +107,9 @@ model Book {
   preorders         Preorder[]
 
   // V12：購買紀錄
-  purchaseGroups  PurchaseGroup[]
-  purchaseEntries PurchaseEntry[]
+  purchaseGroups     PurchaseGroup[]
+  purchaseEntries    PurchaseEntry[]
+  purchaseCategories PurchaseCategory[]
 }
 
 model Couple {
@@ -876,6 +877,31 @@ model PurchaseGroup {
   @@index([bookId, sortOrder])
 }
 
+/// 商品分類（第二層）：吊娃、S娃、扭蛋、景品、一番賞、其他⋯⋯
+///
+/// 這是「商品類型」，**不是角色**。它跟作品是正交的：吉伊卡哇的吊娃與排球少年的吊娃
+/// 是同一種商品類型，所以掛在 Book 底下由兩個作品共用，新增一次全部作品都用得到。
+/// （角色則相反，是依作品分開管理的 —— 見 PurchaseTag。）
+///
+/// isDefault 的那一個（出廠叫「其他」）是刪除分類時的落點，規則與 PurchaseTag 相同：
+/// 恰好一個、可改名、不可刪除，至多一個由 migration 的 partial unique index 保證。
+model PurchaseCategory {
+  id        String   @id @default(cuid())
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+  name      String
+  /// true = 刪除其他分類時，底下的購買紀錄移到這裡。每個帳本恰好一個
+  isDefault Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries  PurchaseEntry[]
+  keywords PurchaseKeyword[]
+
+  @@index([bookId, sortOrder])
+}
+
 /// 作品內的角色／細分類。
 ///
 /// 每個 PurchaseGroup **恰好有一個** isDefault = true 的 tag，當作「對不到角色時的落點」：
@@ -905,15 +931,18 @@ model PurchaseTag {
 /// 自動辨識關鍵字。只協助判斷「作品」與「角色」，**不判斷歸屬**。
 /// tagId 有值 = 角色關鍵字；null = 作品關鍵字（命中後落到該 group 的 default tag）。
 model PurchaseKeyword {
-  id        String        @id @default(cuid())
-  bookId    String
-  groupId   String
-  group     PurchaseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  tagId     String?
-  tag       PurchaseTag?  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  id         String            @id @default(cuid())
+  bookId     String
+  groupId    String
+  group      PurchaseGroup     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  tagId      String?
+  tag        PurchaseTag?      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  /// 命中時建議的商品分類（例如「一番賞」「扭蛋」）。null = 這個關鍵字不管商品分類
+  categoryId String?
+  category   PurchaseCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   /// 比對用的正規化字串（小寫、去空白、全形轉半形）
-  word      String
-  createdAt DateTime      @default(now())
+  word       String
+  createdAt  DateTime          @default(now())
 
   @@unique([bookId, word])
   @@index([bookId])
@@ -929,19 +958,22 @@ model PurchaseKeyword {
 /// ownerId 是「這個東西是誰的」（null = 共同），**不是付款人、也不是分帳比例**。
 /// 兩者完全分離：小艾刷卡買給阿本的公仔，payer 是小艾、ownerId 是阿本。
 model PurchaseEntry {
-  id            String        @id @default(cuid())
+  id            String           @id @default(cuid())
   bookId        String
-  book          Book          @relation(fields: [bookId], references: [id])
+  book          Book             @relation(fields: [bookId], references: [id])
   groupId       String
-  group         PurchaseGroup @relation(fields: [groupId], references: [id])
+  group         PurchaseGroup    @relation(fields: [groupId], references: [id])
   tagId         String
-  tag           PurchaseTag   @relation(fields: [tagId], references: [id])
+  tag           PurchaseTag      @relation(fields: [tagId], references: [id])
+  /// 商品分類（吊娃／扭蛋／一番賞⋯⋯）。跟角色是兩回事
+  categoryId    String
+  category      PurchaseCategory @relation(fields: [categoryId], references: [id])
   /// 歸屬：null = 共同；有值 = 該帳本成員的 userId（service 層驗證）
   ownerId       String?
-  owner         User?         @relation("PurchaseOwner", fields: [ownerId], references: [id])
+  owner         User?            @relation("PurchaseOwner", fields: [ownerId], references: [id])
   /// 來自哪一筆記帳；null = 獨立的歷史購買
-  transactionId String?       @unique
-  transaction   Transaction?  @relation(fields: [transactionId], references: [id])
+  transactionId String?          @unique
+  transaction   Transaction?     @relation(fields: [transactionId], references: [id])
   /// 以下三欄**只有 transactionId = null 時才有值**，有交易時一律讀交易的
   title         String?
   occurredAt    DateTime?
@@ -949,10 +981,11 @@ model PurchaseEntry {
   note          String?
   createdById   String
   updatedById   String
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   @@index([bookId, groupId])
   @@index([bookId, ownerId])
   @@index([groupId, tagId])
+  @@index([groupId, categoryId])
 }

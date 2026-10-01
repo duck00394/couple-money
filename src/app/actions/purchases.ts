@@ -6,14 +6,16 @@ import { getAppContext } from "@/server/context";
 import { parseAmount } from "@/lib/money";
 import { toOwnerId } from "@/server/domain/purchase";
 import {
-  addFromTransaction, addKeyword, addManual, convertToManual, createGroup, createTag,
-  deleteGroup, deleteKeyword, deleteTag, removeEntry, renameTag, updateEntry, updateGroup,
+  addFromTransaction, addKeyword, addManual, convertToManual, createCategory, createGroup, createTag,
+  deleteCategory, deleteGroup, deleteKeyword, deleteTag, removeEntry, renameCategory, renameTag,
+  seedStarter, updateEntry, updateGroup,
 } from "@/server/services/purchases";
 import { str, toActionState, type ActionState } from "@/server/actions";
 
 /** 表單共用：作品、角色、歸屬。歸屬的 "JOINT" 在這裡才轉成 null。 */
 const target = (form: FormData) => ({
   groupId: str(form, "groupId"),
+  categoryId: str(form, "categoryId"),
   tagId: str(form, "tagId"),
   ownerId: toOwnerId(str(form, "ownerId")),
   note: str(form, "note"),
@@ -95,6 +97,7 @@ export async function addKeywordAction(_: ActionState, form: FormData): Promise<
     await addKeyword(ctx, {
       groupId: str(form, "groupId"),
       tagId: str(form, "tagId") || null,
+      categoryId: str(form, "categoryId") || null,
       word: str(form, "word"),
     });
     return { ok: "已新增關鍵字" };
@@ -172,6 +175,49 @@ export async function convertToManualAction(_: ActionState, form: FormData): Pro
     const { ctx } = await getAppContext();
     await convertToManual(ctx, str(form, "id"));
     return { ok: "已轉成手動紀錄" };
+  });
+  revalidatePath("/", "layout");
+  return state;
+}
+
+/* ───────────────────────── 商品分類 ───────────────────────── */
+
+export async function createCategoryAction(_: ActionState, form: FormData): Promise<ActionState> {
+  const state = await toActionState(async () => {
+    const { ctx } = await getAppContext();
+    await createCategory(ctx, str(form, "name"));
+    return { ok: "已新增商品分類" };
+  });
+  revalidatePath("/", "layout");
+  return state;
+}
+
+export async function renameCategoryAction(_: ActionState, form: FormData): Promise<ActionState> {
+  const state = await toActionState(async () => {
+    const { ctx } = await getAppContext();
+    await renameCategory(ctx, str(form, "id"), str(form, "name"));
+    return { ok: "已改名" };
+  });
+  revalidatePath("/", "layout");
+  return state;
+}
+
+export async function deleteCategoryAction(_: ActionState, form: FormData): Promise<ActionState> {
+  const state = await toActionState(async () => {
+    const { ctx } = await getAppContext();
+    const r = await deleteCategory(ctx, str(form, "id"));
+    return { ok: r.movedCount > 0 ? `已刪除，${r.movedCount} 筆移到「${r.fallbackName}」` : "已刪除" };
+  });
+  revalidatePath("/", "layout");
+  return state;
+}
+
+/** 一鍵建立預設作品與角色（吉伊卡哇、排球少年）。只在還沒有任何作品時有用。 */
+export async function seedStarterAction(): Promise<ActionState> {
+  const state = await toActionState(async () => {
+    const { ctx } = await getAppContext();
+    const r = await seedStarter(ctx);
+    return { ok: r.created > 0 ? `已建立 ${r.created} 個作品` : "已經有作品了" };
   });
   revalidatePath("/", "layout");
   return state;
