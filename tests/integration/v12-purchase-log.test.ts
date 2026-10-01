@@ -753,3 +753,78 @@ describe("V12-2：商品分類與四層導覽", () => {
     assert.equal(await prisma.transactionPayment.count({ where: { transaction: { purchaseEntry: { isNot: null } } } }), 0);
   });
 });
+
+
+/**
+ * V12-3：商品分類是後來才加的那一層，所以要處理「舊帳本升級上來」的狀態。
+ *
+ * 真實案例：在加入商品分類之前就建好作品、但還沒記過任何一筆的帳本，
+ * 沒被 migration 的回填掃到（那版只看 PurchaseEntry），結果新增表單的
+ * 「商品分類」整區空白、送出鈕永遠是灰的，畫面上沒有任何出路。
+ */
+describe("V12-3：沒有商品分類的舊帳本不會卡死", () => {
+  let c: Awaited<ReturnType<typeof setupCouple>>;
+
+  before(async () => {
+    await reset();
+    c = await setupCouple();
+  });
+  after(async () => {
+    await prisma.$disconnect();
+  });
+
+  it("1. 有作品但一個商品分類都沒有時，讀取會就地把六種預設補出來", async () => {
+    const g = await purchases.createGroup(c.ctxA, { name: "吉伊卡哇" });
+    // 重現舊帳本：作品在、分類被清空
+    await prisma.purchaseCategory.deleteMany({ where: { bookId: c.ctxA.book.id } });
+    assert.equal(await prisma.purchaseCategory.count({ where: { bookId: c.ctxA.book.id } }), 0);
+
+    const cats = await purchases.listCategories(c.ctxA);
+    assert.deepEqual(cats.map((x) => x.name), ["吊娃", "S娃", "扭蛋", "景品", "一番賞", "其他"]);
+    assert.equal(cats.filter((x) => x.isDefault).length, 1, "恰好一個預設");
+
+    // 表單拿得到東西，所以送出鈕不會是灰的
+    const opts = await purchases.optionsForForm(c.ctxA);
+    assert.ok(opts.categories.length > 0, "新增表單的商品分類不是空的");
+    assert.ok(opts.groups.some((x) => x.id === g.id));
+  });
+
+  it("2. 補出來之後是冪等的：再讀幾次都還是六種，不會長出兩套", async () => {
+    await purchases.listCategories(c.ctxA);
+    await purchases.listCategories(c.ctxA);
+    const rows = await prisma.purchaseCategory.findMany({ where: { bookId: c.ctxA.book.id } });
+    assert.equal(rows.length, 6);
+    assert.equal(rows.filter((r) => r.isDefault).length, 1);
+  });
+
+  it("3. 補出來的分類真的能用：新增一筆購買紀錄會成功", async () => {
+    const g = (await purchases.listGroups(c.ctxA))[0];
+    const cat = (await purchases.listCategories(c.ctxA))[0];
+    const tag = await prisma.purchaseTag.findFirstOrThrow({ where: { groupId: g.id, isDefault: true } });
+    const e = await purchases.addManual(c.ctxA, {
+      groupId: g.id, categoryId: cat.id, tagId: tag.id, ownerId: c.aId,
+      title: "兔兔吉伊", amount: $(350), occurredOn: "2026-09-25",
+    });
+    assert.ok(e.id);
+    const detail = await purchases.getGroupDetail(c.ctxA, g.id, { categoryId: cat.id });
+    assert.equal(detail.totals.count, 1);
+  });
+
+  it("4. 使用者自己改過分類的帳本不會被覆蓋", async () => {
+    // 只刪沒人在用的（在用的刪不掉，外鍵擋著 —— 那也正是我們要的）
+    const inUse = (await prisma.purchaseEntry.findMany({
+      where: { bookId: c.ctxA.book.id }, select: { categoryId: true },
+    })).map((e) => e.categoryId);
+    await prisma.purchaseCategory.deleteMany({
+      where: { bookId: c.ctxA.book.id, isDefault: false, id: { notIn: inUse } },
+    });
+    const left = await purchases.listCategories(c.ctxA);
+    assert.ok(left.length > 0 && left.length < 6, `應該只剩少數幾個，實際 ${left.length} 個`);
+
+    await purchases.renameCategory(c.ctxA, left[0].id, "我自己的分類");
+    const after = await purchases.listCategories(c.ctxA);
+    assert.equal(after.length, left.length, "不是空的就不會被補，數量維持原狀");
+    assert.ok(after.some((x) => x.name === "我自己的分類"), "改過的名字留著");
+    assert.ok(!after.some((x) => x.name === "扭蛋"), "被刪掉的沒有被補回來");
+  });
+});

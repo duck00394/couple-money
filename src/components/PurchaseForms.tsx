@@ -119,6 +119,16 @@ export function CategoryChips({
   onChange: (v: string) => void;
   name?: string;
 }) {
+  // 正常情況下不會是空的（service 讀不到時會自己補出六種預設）。
+  // 真的空了就把話講出來並給一條出路，不要留一整區空白加一顆按不下去的送出鈕。
+  if (categories.length === 0) {
+    return (
+      <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800" role="alert" data-testid="category-empty">
+        還沒有商品分類，所以沒辦法送出。
+        請到<Link href="/purchases/manage" className="font-semibold underline underline-offset-2">管理購買分類</Link>建立一個（例如：吊娃、扭蛋、一番賞）。
+      </p>
+    );
+  }
   return (
     <div className="flex flex-wrap gap-2" data-testid="category-chips">
       <input type="hidden" name={name} value={value} />

@@ -894,12 +894,35 @@ export async function optionsForForm(ctx: BookContext) {
   };
 }
 
-/** 這個帳本的商品分類（整本共用）。 */
+/**
+ * 這個帳本的商品分類（整本共用）。
+ *
+ * 一個都沒有時會就地把六種預設補出來。原因是沒有分類的話，新增購買紀錄的表單會
+ * 整區空白、送出鈕永遠是灰的，而且畫面上沒有任何出路 —— 使用者只能卡在那裡。
+ * 這種帳本確實存在過：商品分類是後來才加的，在那之前就建好作品、卻還沒記過任何一筆的
+ * 帳本沒被 migration 的回填掃到。
+ *
+ * 補的動作是冪等的（count 為 0 才做，而且 partial unique index 擋著重複的預設），
+ * 所以併發兩個請求同時進來也不會長出兩套。
+ */
 export async function listCategories(ctx: BookContext) {
-  const rows = await prisma.purchaseCategory.findMany({
-    where: { bookId: ctx.book.id },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-  });
+  const read = () =>
+    prisma.purchaseCategory.findMany({
+      where: { bookId: ctx.book.id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    });
+  let rows = await read();
+  if (rows.length === 0) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        await lockBook(tx, ctx.book.id);
+        await ensureCategories(tx, ctx.book.id);
+      });
+      rows = await read();
+    } catch {
+      // 補不出來（例如沒有寫入權限）就照常回空陣列，頁面自己會顯示提示，不要讓整頁爆掉
+    }
+  }
   return rows.map((c) => ({ id: c.id, name: c.name, isDefault: c.isDefault }));
 }
 

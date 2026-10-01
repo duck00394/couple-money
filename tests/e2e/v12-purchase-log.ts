@@ -171,14 +171,13 @@ export async function v12PurchaseLog(a: Page, b: Page) {
 
   // ───────── 移除購買紀錄，原交易仍在 ─────────
   const settleBefore = (await pageText(a, "/settle")).replace(/\s+/g, " ");
-  await go(a, groupUrl);
-  await a.getByTestId("purchase-level-row").filter({ hasText: "吊娃" }).first().click();
+  // 從那筆交易的「已在購買紀錄裡」直接進去，確定刪到的就是這一筆
+  await go(a, txUrl);
   await loaded(a);
-  await a.getByTestId("purchase-level-row").filter({ hasText: "小艾" }).click();
-  await loaded(a);
-  await a.getByTestId("purchase-entry-row").first().click();
+  await a.getByTestId("purchase-link").click();
   await a.waitForURL(/\/purchases\/entry\//);
   await loaded(a);
+  await expect(a.getByTestId("from-tx-note"), "這筆來自記帳，金額與日期是唯讀的").toBeVisible();
   await a.getByTestId("remove-entry-open").click();
   await expect(a.getByTestId("remove-entry-confirm")).toContainText("記帳會留著");
   await a.getByTestId("remove-entry-confirm-btn").click();
