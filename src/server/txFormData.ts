@@ -6,6 +6,7 @@ import { ACCOUNT_TYPE_ICON, listAccounts, listCategories } from "./services/ledg
 import { allocationsForForm, listFunds } from "./services/funds";
 import { listPreorders } from "./services/preorders";
 import { rankTags } from "./domain/tags";
+import { optionsForForm as purchaseOptions } from "./services/purchases";
 
 /** 帳戶選單顯示名稱（與記帳表單一致）：我的・玉山卡、共同帳戶。下拉選單是純文字，圖示在列表才顯示。 */
 export function accountOptionLabel(ctx: BookContext, a: { name: string; type: AccountType; ownerId: string | null }) {
@@ -18,7 +19,7 @@ export function accountOptionLabel(ctx: BookContext, a: { name: string; type: Ac
  * `keepCategoryId`：編輯舊紀錄時，那筆原本的分類即使已停用也要留在選單裡。
  */
 export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId?: string | null; keepPreorderId?: string | null } = {}) {
-  const [accounts, categories, funds, allocations, tags, preorders] = await Promise.all([listAccounts(ctx), listCategories(ctx, { keepId: opts.keepCategoryId }), listFunds(ctx, { includeArchived: true }), allocationsForForm(ctx), recentTags(ctx), payablePreorders(ctx, opts.keepPreorderId)]);
+  const [accounts, categories, funds, allocations, tags, preorders, purchaseGroups] = await Promise.all([listAccounts(ctx), listCategories(ctx, { keepId: opts.keepCategoryId }), listFunds(ctx, { includeArchived: true }), allocationsForForm(ctx), recentTags(ctx), payablePreorders(ctx, opts.keepPreorderId), purchaseOptions(ctx)]);
   return {
     me: { userId: ctx.me.userId, nickname: ctx.me.nickname },
     partner: ctx.partner ? { userId: ctx.partner.userId, nickname: ctx.partner.nickname } : null,
@@ -32,6 +33,8 @@ export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId
     tagOptions: tags,
     /** 還沒付完的預購，記帳時可以直接選 */
     preorders,
+    /** 購買紀錄的作品與角色；沒有作品時記帳頁那一列就不顯示 */
+    purchaseGroups,
   };
 }
 

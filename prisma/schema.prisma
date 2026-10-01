@@ -27,10 +27,11 @@ model User {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime? // 刪除帳號 = 匿名化，不刪交易
 
-  sessions      Session[]
-  memberships   BookMember[]
-  preorders     Preorder[]     @relation("PreorderOwner")
-  preorderItems PreorderItem[] @relation("PreorderItemOwner")
+  sessions        Session[]
+  memberships     BookMember[]
+  preorders       Preorder[]      @relation("PreorderOwner")
+  preorderItems   PreorderItem[]  @relation("PreorderItemOwner")
+  purchaseEntries PurchaseEntry[] @relation("PurchaseOwner")
 }
 
 model Session {
@@ -104,6 +105,10 @@ model Book {
   // Phase 3-3
   recurringExpenses RecurringExpense[]
   preorders         Preorder[]
+
+  // V12：購買紀錄
+  purchaseGroups  PurchaseGroup[]
+  purchaseEntries PurchaseEntry[]
 }
 
 model Couple {
@@ -301,6 +306,8 @@ model Transaction {
   // 預購：這筆付款屬於哪一張預購單（只是關聯，金額計算完全沿用既有邏輯）
   preorderId         String?
   preorder           Preorder?         @relation(fields: [preorderId], references: [id])
+  /// V12：購買紀錄的反向關聯（不新增實體欄位，外鍵在 PurchaseEntry 那邊）
+  purchaseEntry      PurchaseEntry?
   clientRequestId    String // 防重送（idempotency key）
   version            Int               @default(1)
   createdById        String
@@ -840,4 +847,112 @@ model PreorderItem {
   sortOrder  Int      @default(0)
 
   @@index([preorderId])
+}
+
+// ═══════════════════════════ V12：購買紀錄 ═══════════════════════════
+// 購買紀錄回答的是「我們到底買了什麼、花了多少」，**不是財務紀錄**。
+//
+// 它不產生 TransactionPayment / TransactionSplit，所以 accountBalances() 與
+// netPositions() 這兩個推導函式根本看不到它 —— 帳戶餘額、欠款、分帳、基金、
+// 預算、統計、結算一律不受影響。Transaction 也沒有為它增加任何欄位。
+
+/// 作品／大分類，例如「吉伊卡哇」「排球少年」。購買紀錄的第一層入口。
+model PurchaseGroup {
+  id          String   @id @default(cuid())
+  bookId      String
+  book        Book     @relation(fields: [bookId], references: [id])
+  name        String
+  icon        String   @default("gift")
+  sortOrder   Int      @default(0)
+  createdById String
+  updatedById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tags     PurchaseTag[]
+  entries  PurchaseEntry[]
+  keywords PurchaseKeyword[]
+
+  @@index([bookId, sortOrder])
+}
+
+/// 作品內的角色／細分類。
+///
+/// 每個 PurchaseGroup **恰好有一個** isDefault = true 的 tag，當作「對不到角色時的落點」：
+///   ・至多一個 → migration 裡的 partial unique index
+///     `CREATE UNIQUE INDEX "PurchaseTag_one_default_per_group" ON "PurchaseTag"("groupId") WHERE "isDefault"`
+///     （Prisma schema 表達不出 partial index，所以只存在於 migration.sql，別把它刪掉）
+///   ・至少一個 → service：建立 group 時同一個 $transaction 內一起建出來，且拒絕刪除 default
+///
+/// default tag 可以改名。程式判斷一律看 isDefault，**不可以寫死「全角色」字串**。
+model PurchaseTag {
+  id        String        @id @default(cuid())
+  groupId   String
+  group     PurchaseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name      String
+  /// true = 這個作品的預設落點。每個 group 恰好一個，不可刪除，可改名
+  isDefault Boolean       @default(false)
+  sortOrder Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  entries  PurchaseEntry[]
+  keywords PurchaseKeyword[]
+
+  @@index([groupId, sortOrder])
+}
+
+/// 自動辨識關鍵字。只協助判斷「作品」與「角色」，**不判斷歸屬**。
+/// tagId 有值 = 角色關鍵字；null = 作品關鍵字（命中後落到該 group 的 default tag）。
+model PurchaseKeyword {
+  id        String        @id @default(cuid())
+  bookId    String
+  groupId   String
+  group     PurchaseGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  tagId     String?
+  tag       PurchaseTag?  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  /// 比對用的正規化字串（小寫、去空白、全形轉半形）
+  word      String
+  createdAt DateTime      @default(now())
+
+  @@unique([bookId, word])
+  @@index([bookId])
+}
+
+/// 一筆購買紀錄。
+///
+/// 兩種來源：
+///   ・transactionId 有值 → 金額與日期**直接引用**那筆 Transaction，本表不另存一份，
+///     所以不可能出現「交易 $250、購買紀錄 $200」。title/occurredAt/amount 三欄留空。
+///   ・transactionId = null → 獨立的歷史購買，三欄自己存，不產生任何 Transaction。
+///
+/// ownerId 是「這個東西是誰的」（null = 共同），**不是付款人、也不是分帳比例**。
+/// 兩者完全分離：小艾刷卡買給阿本的公仔，payer 是小艾、ownerId 是阿本。
+model PurchaseEntry {
+  id            String        @id @default(cuid())
+  bookId        String
+  book          Book          @relation(fields: [bookId], references: [id])
+  groupId       String
+  group         PurchaseGroup @relation(fields: [groupId], references: [id])
+  tagId         String
+  tag           PurchaseTag   @relation(fields: [tagId], references: [id])
+  /// 歸屬：null = 共同；有值 = 該帳本成員的 userId（service 層驗證）
+  ownerId       String?
+  owner         User?         @relation("PurchaseOwner", fields: [ownerId], references: [id])
+  /// 來自哪一筆記帳；null = 獨立的歷史購買
+  transactionId String?       @unique
+  transaction   Transaction?  @relation(fields: [transactionId], references: [id])
+  /// 以下三欄**只有 transactionId = null 時才有值**，有交易時一律讀交易的
+  title         String?
+  occurredAt    DateTime?
+  amount        Int?
+  note          String?
+  createdById   String
+  updatedById   String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([bookId, groupId])
+  @@index([bookId, ownerId])
+  @@index([groupId, tagId])
 }

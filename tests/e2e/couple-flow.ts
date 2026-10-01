@@ -29,6 +29,7 @@ import { v8PreorderSplitItems } from "./v8-preorder-split-items";
 import { v9UxRound } from "./v9-ux-round";
 import { v10GuardsAndFlow } from "./v10-guards-and-flow";
 import { v11PreorderOwnerSplit } from "./v11-preorder-owner-split";
+import { v12PurchaseLog } from "./v12-purchase-log";
 
 /** 後續階段的流程依序接在 Phase 1 之後執行（兩人帳號延續使用）。 */
 const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
@@ -53,6 +54,7 @@ const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
   ["v9 ux round", v9UxRound],
   ["v10 guards+flow", v10GuardsAndFlow],
   ["v11 preorder owner split", v11PreorderOwnerSplit],
+  ["v12 purchase log", v12PurchaseLog],
   ["icon text", async (a) => iconText(a)],
   ["ux audit", async (a) => uxAudit(a)],
 ];

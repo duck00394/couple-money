@@ -15,6 +15,7 @@ import type { SplitRule } from "@/server/domain/split";
 import { getTransaction } from "@/server/services/ledger";
 import { refundsOf } from "@/server/services/transfers";
 import { listReceipts, MAX_RECEIPTS } from "@/server/services/receipts";
+import { entryOfTransaction } from "@/server/services/purchases";
 import { loadTxFormOptions } from "@/server/txFormData";
 
 export default async function EditTransactionPage({ params }: PageProps<"/transactions/[id]">) {
@@ -25,9 +26,11 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
   const related = tx.relatedId
     ? await prisma.transaction.findFirst({ where: { id: tx.relatedId, bookId: ctx.book.id }, select: { id: true, title: true, amount: true } })
     : null;
-  const [refunds, receipts] = await Promise.all([
+  const [refunds, receipts, purchase] = await Promise.all([
     tx.type === "EXPENSE" ? refundsOf(ctx, tx.id) : Promise.resolve([]),
     listReceipts(ctx, tx.id),
+    // 購買紀錄完全不影響這頁的任何金額，只是多一張卡片
+    tx.type === "EXPENSE" ? entryOfTransaction(ctx, tx.id) : Promise.resolve(null),
   ]);
   const refunded = refunds.reduce((a, r) => a + r.amount, 0);
   const refundable = Math.max(0, tx.amount - refunded);
@@ -126,6 +129,37 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
               </ul>
             )}
           </Card>
+        </div>
+      )}
+      {tx.type === "EXPENSE" && (
+        <div className="mt-3 px-4">
+          {purchase ? (
+            <Link href={`/purchases/entry/${purchase.id}`} className="press block" data-testid="purchase-link">
+              <Card className="flex items-center gap-3 border-brand-500">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[1.5px] border-stone-800 bg-brand-100">
+                  <ArtIcon name="shopping-bag" size={18} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">已在購買紀錄裡</p>
+                  <p className="mt-0.5 truncate text-xs text-stone-500">{purchase.groupName} ・ {purchase.tagName}</p>
+                </div>
+                <span className="text-lg text-stone-400">›</span>
+              </Card>
+            </Link>
+          ) : ctx.canWrite ? (
+            <Link href={`/purchases/new?tx=${tx.id}`} className="press block" data-testid="add-purchase-link">
+              <Card className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[1.5px] border-stone-800 bg-kraft">
+                  <ArtIcon name="shopping-bag" size={18} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">加入購買紀錄</p>
+                  <p className="mt-0.5 text-xs text-stone-500">沿用這筆的金額與日期，只要選作品、歸屬與角色</p>
+                </div>
+                <span className="text-lg text-stone-400">›</span>
+              </Card>
+            </Link>
+          ) : null}
         </div>
       )}
       <Collapsible title="查看詳細資料（金流、負擔、建立者）" className="mx-4 mt-3 mb-3">
