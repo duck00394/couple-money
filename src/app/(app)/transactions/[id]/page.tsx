@@ -92,6 +92,13 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
   }
 
   const options = await loadTxFormOptions(ctx, { keepCategoryId: tx.categoryId, keepPreorderId: tx.preorderId });
+  /*
+   * 編輯時那一行「約 NT$」要用**這筆交易當初鎖住的匯率**，不是帳本現在的匯率 ——
+   * 送出之後那兩個欄位也不會被覆寫，所以預覽跟存下來的結果要是同一個數字。
+   */
+  if (tx.homeRateUnits && tx.homeRateMinor) {
+    options.homeRate = { units: tx.homeRateUnits, minor: tx.homeRateMinor };
+  }
   const payAccountId = tx.payments[0]?.accountId ?? "";
   // 已停用的帳戶仍要能在編輯時顯示
   if (payAccountId && !options.accounts.some((a) => a.id === payAccountId)) {

@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { RateRow } from "@/components/RateForms";
+import { HomeRateCard } from "@/components/HomeRateCard";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
 import { getAppContext } from "@/server/context";
 import { ratesForSettings } from "@/server/services/rates";
+import { HOME_CURRENCY } from "@/server/services/books";
 import { currencyOf } from "@/lib/currency";
 
 /**
@@ -13,8 +16,41 @@ import { currencyOf } from "@/lib/currency";
  */
 export default async function RatesPage() {
   const { ctx } = await getAppContext();
-  const rows = await ratesForSettings(ctx);
   const base = currencyOf(ctx.book.baseCurrency);
+
+  /*
+   * 出國用的帳本（本位幣不是台幣）只有一件事要設定：這趟旅行的那一種外幣兌台幣。
+   *
+   * 一趟旅行通常只去一個國家，所以這裡**不列出其他八種幣別** ——
+   * 一長串 USD / KRW / EUR / HKD 會讓旅遊記帳看起來像外匯軟體，
+   * 而且那些都不是這本帳本用得到的東西。
+   * 真正要在台灣記一筆外幣消費，是「原帳本」的事，在原帳本這一頁設定。
+   */
+  if (ctx.book.baseCurrency !== HOME_CURRENCY) {
+    return (
+      <>
+        <PageHeader title="匯率" back="/more" />
+        <div className="px-4">
+          <p className="text-sm leading-relaxed text-stone-600">
+            這本帳本用 <b className="text-stone-800">{base.symbol} {base.code}</b>（{base.name}）記帳，
+            只需要知道「1 {base.code} 大約多少台幣」。
+          </p>
+          <HomeRateCard
+            currency={ctx.book.baseCurrency}
+            rate={ctx.book.homeRate}
+            canWrite={ctx.book.status === "ACTIVE"}
+          />
+          <p className="mt-4 text-center text-xs leading-relaxed text-stone-500">
+            這張卡也直接放在
+            <Link href="/" className="mx-0.5 underline underline-offset-2">首頁</Link>
+            ，旅行中不用進來這裡就能改。
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  const rows = await ratesForSettings(ctx);
   const configured = rows.filter((r) => r.rate);
   const rest = rows.filter((r) => !r.rate);
 
@@ -54,7 +90,6 @@ export default async function RatesPage() {
                   symbol={r.symbol}
                   baseCurrency={ctx.book.baseCurrency}
                   rate={r.rate}
-                  suggestedUnits={r.suggestedUnits}
                 />
               ))}
             </div>
@@ -71,14 +106,15 @@ export default async function RatesPage() {
               symbol={r.symbol}
               baseCurrency={ctx.book.baseCurrency}
               rate={r.rate}
-              suggestedUnits={r.suggestedUnits}
             />
           ))}
         </div>
 
         <p className="mt-4 rounded-xl bg-stone-100 px-3 py-2.5 text-xs leading-relaxed text-stone-600">
-          日圓與韓元的數字比較大，所以預設用「100 JPY」「1000 KRW」當單位 ——
-          寫成「1 JPY = 0.215」很容易少看一個零。你可以自己改左邊的數量。
+          每一列都是「1 個外幣等於多少{base.name}」，把當天看到的匯率打進去就好，
+          小數最多六位（例如 1 JPY = 0.2185 {base.code}）。
+          <br />
+          如果是出國，建議直接建一本旅遊帳本並選當地幣別 —— 那種帳本的匯率就在首頁，不用進來這一頁。
         </p>
       </div>
     </>

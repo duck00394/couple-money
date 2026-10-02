@@ -328,6 +328,12 @@ model Transaction {
   /// 之後使用者改匯率設定**不會動到這裡**，所以歷史交易的金額永遠不變。
   rateForeignUnits   Int?
   rateBaseMinor      Int?
+  /// V16：建立這筆交易時，帳本「本位幣 → 台幣」的參考匯率，同樣原樣鎖在這一列：
+  ///   homeRateUnits = 1、homeRateMinor = 21 就是「1 JPY = 0.21 TWD」。
+  /// 用來算那一行「約 NT$」。之後在首頁改匯率只影響新的交易，這一筆的參考值不變。
+  /// 台幣帳本沒有這回事，一律 null；舊資料也是 null（不回填，見 migration 說明）。
+  homeRateUnits      Int?
+  homeRateMinor      Int?
   title              String?
   merchant           String?
   location           String?

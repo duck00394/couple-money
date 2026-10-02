@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CloseBookButton, ReopenBookButton } from "@/components/BookForms2";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
-import { homeApprox, moneyFmt } from "@/lib/money";
+import { formatMoney, moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listMyBooks } from "@/server/services/books";
 import { bookTotals } from "@/server/services/stats";
@@ -20,7 +20,7 @@ export default async function BooksPage({ searchParams }: PageProps<"/books">) {
   const closed = books.filter((b) => b.isClosed);
   // 每本帳本的總支出：讓歷史紀錄一眼看得到「那趟花了多少」
   const totals = new Map(
-    await Promise.all(books.map(async (b) => [b.id, await bookTotals(b.id)] as const)),
+    await Promise.all(books.map(async (b) => [b.id, await bookTotals(b.id, b.homeRate)] as const)),
   );
 
   const Row = ({ b }: { b: (typeof books)[number] }) => {
@@ -42,9 +42,10 @@ export default async function BooksPage({ searchParams }: PageProps<"/books">) {
           </div>
           <div className="shrink-0 text-right">
             <p className="amount text-[15px] text-stone-800">{moneyFmt(b.baseCurrency)(t?.expense ?? 0)}</p>
-            {/* V16：外幣帳本在旁邊附一行「約 NT$」，回國之後還是知道花了多少台幣 */}
-            {homeApprox(t?.expense ?? 0, b.homeRate) && (
-              <p className="text-[11px] text-stone-500">約 {homeApprox(t?.expense ?? 0, b.homeRate)}</p>
+            {/* V16：外幣帳本在旁邊附一行「約 NT$」，回國之後還是知道花了多少台幣。
+                每一筆用它自己記帳當下的匯率換算再加總（bookTotals 算好） */}
+            {t?.homeExpense != null && (
+              <p className="text-[11px] text-stone-500">約 {formatMoney(t.homeExpense, { symbol: "NT$" })}</p>
             )}
             <p className="text-[11px] text-stone-400">{t?.count ?? 0} 筆</p>
           </div>

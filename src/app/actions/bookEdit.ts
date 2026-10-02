@@ -4,25 +4,35 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAppContext } from "@/server/context";
 import { requireUser } from "@/server/auth/session";
-import { deleteBook, updateBook } from "@/server/services/books";
-import { parseAmount } from "@/lib/money";
+import { deleteBook, homeRatePair, setHomeRate, updateBook } from "@/server/services/books";
 import { str, toActionState, type ActionState } from "@/server/actions";
 
 /** 編輯帳本：名稱、起訖日、備註、換回台幣的參考匯率。 */
 export async function updateBookAction2(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
     const { ctx } = await getAppContext();
-    const units = Number(str(form, "homeRateUnits")) || null;
-    const value = parseAmount(str(form, "homeRateValue"));
     await updateBook(ctx, {
       name: str(form, "name"),
       startOn: str(form, "startOn") || null,
       endOn: str(form, "endOn") || null,
       note: str(form, "note") || null,
-      homeRateUnits: units,
-      homeRateMinor: value,
+      ...homeRatePair(str(form, "homeRateValue")),
     });
     return { ok: "已更新" };
+  });
+  revalidatePath("/", "layout");
+  return state;
+}
+
+/**
+ * 只改匯率。旅遊帳本首頁那張小卡直接送這個 ——
+ * 不用進設定頁，也不會因為少送名稱而把別的欄位清掉。
+ */
+export async function setHomeRateAction(_: ActionState, form: FormData): Promise<ActionState> {
+  const state = await toActionState(async () => {
+    const { ctx } = await getAppContext();
+    await setHomeRate(ctx, str(form, "homeRateValue"));
+    return { ok: "已更新（只影響之後記的帳）" };
   });
   revalidatePath("/", "layout");
   return state;

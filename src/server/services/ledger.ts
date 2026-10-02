@@ -4,7 +4,7 @@ import { assert, DomainError } from "../domain/errors";
 import { buildBalanceLines, buildFlowLines, buildSettlementLines } from "../domain/ledger";
 import { accountBalances, maxSettleAmount, netPositions, suggestSettlements, type LedgerTx } from "../domain/balance";
 import { SPLIT_METHODS, type SplitRule } from "../domain/split";
-import { formatMoney, MAX_AMOUNT } from "@/lib/money";
+import { formatMoney, MAX_AMOUNT, sumHomeMinor } from "@/lib/money";
 import { fromDateKey, keyToDbDate, monthRange } from "@/lib/dates";
 import { assertCanWrite, type BookContext } from "./books";
 import { syncFundExpense } from "./funds";
@@ -321,6 +321,19 @@ async function validateInput(tx: Tx, ctx: BookContext, input: TransactionInput, 
  * 外幣 → 讀帳本目前設定的匯率，算出本位幣金額，並把匯率原樣鎖在這筆交易上。
  */
 async function resolveMoney(tx: Tx, ctx: BookContext, input: TransactionInput) {
+  /*
+   * V16：「本位幣 → 台幣」的參考匯率也一起鎖在這一列上。
+   *
+   * 這一份跟下面那個 rate 是**兩件不同的事**：
+   *   rate      ：交易幣別 → 本位幣，會影響 amount，是真正的財務資料
+   *   homeRate  ：本位幣   → 台幣，只影響畫面上那一行「約 NT$」，不參與任何計算
+   *
+   * 鎖起來是為了讓「這趟旅行總共大約花多少台幣」用的是**記帳當下**的匯率。
+   * 之後在首頁把匯率改掉，只有新的交易會用新匯率。
+   */
+  const home = ctx.book.homeRate;
+  const homeRateUnits = home?.units ?? null;
+  const homeRateMinor = home?.minor ?? null;
   const rate = await rateFor(ctx, input.currency, tx);
   if (!rate) {
     // 本位幣：foreignAmount / 匯率都留 null，讀取端據此判斷「這筆不是外幣」
@@ -330,6 +343,8 @@ async function resolveMoney(tx: Tx, ctx: BookContext, input: TransactionInput) {
       foreignAmount: null as number | null,
       rateForeignUnits: null as number | null,
       rateBaseMinor: null as number | null,
+      homeRateUnits,
+      homeRateMinor,
     };
   }
   const foreign = input.foreignAmount ?? 0;
@@ -340,6 +355,8 @@ async function resolveMoney(tx: Tx, ctx: BookContext, input: TransactionInput) {
     foreignAmount: foreign,
     rateForeignUnits: rate.foreignUnits,
     rateBaseMinor: rate.baseMinor,
+    homeRateUnits,
+    homeRateMinor,
   };
 }
 
@@ -374,6 +391,8 @@ export async function createTransactionIn(tx: Tx, ctx: BookContext, input: Trans
       foreignAmount: money.foreignAmount,
       rateForeignUnits: money.rateForeignUnits,
       rateBaseMinor: money.rateBaseMinor,
+      homeRateUnits: money.homeRateUnits,
+      homeRateMinor: money.homeRateMinor,
       title: input.title.trim() || null,
       note: input.note.trim() || null,
       categoryId: input.categoryId,
@@ -453,13 +472,23 @@ export async function updateTransaction(
       data: {
         type: input.type,
         occurredAt,
-        // 編輯時匯率會**重新鎖一次**（用現在的設定）—— 這是對的：使用者正在重新
-        // 輸入這筆交易的內容。沒被編輯的交易完全不受影響。
+        // 交易幣別 → 本位幣的匯率編輯時會**重新鎖一次**（用現在的設定）—— 這是對的：
+        // 使用者正在重新輸入這筆交易的內容，amount 本來就會跟著重算。
         amount: money.amount,
         currency: money.currency,
         foreignAmount: money.foreignAmount,
         rateForeignUnits: money.rateForeignUnits,
         rateBaseMinor: money.rateBaseMinor,
+        /*
+         * 但「本位幣 → 台幣」的參考匯率**不在這裡寫**（連欄位都不送，Prisma 就不會動它）。
+         *
+         * 它代表「這筆帳是在什麼匯率的時候記的」，跟使用者後來把標題改了幾個字無關。
+         * 一旦在這裡重鎖，只要改過一次匯率再去編輯舊交易，那筆的「約 NT$」就會跳掉 ——
+         * 等於繞過了「交易當下鎖定匯率」。
+         *
+         * 舊資料（null）也維持 null：補不出當時的匯率，不要補一個看起來像真的的數字。
+         * 所以寫入這兩欄的路徑**只有建立交易那一條**。
+         */
         title: input.title.trim() || null,
         note: input.note.trim() || null,
         categoryId: input.categoryId,
@@ -586,11 +615,21 @@ export async function listCategories(ctx: BookContext, opts: { keepId?: string |
 }
 
 /** 首頁：本月總支出、我本月負擔。 */
+/** 交易上鎖住的台幣參考匯率（舊資料是 null，呼叫端會退回帳本目前的匯率）。 */
+export const homeRateOf = (r: { homeRateUnits: number | null; homeRateMinor: number | null }) =>
+  r.homeRateUnits && r.homeRateMinor ? { units: r.homeRateUnits, minor: r.homeRateMinor } : null;
+
 export async function monthSummary(ctx: BookContext, now = new Date()) {
   const { start, end, label } = monthRange(now);
   const rows = await prisma.transaction.findMany({
     where: { bookId: ctx.book.id, deletedAt: null, status: "POSTED", type: { in: ["EXPENSE", "INCOME", "REFUND"] }, occurredAt: { gte: start, lt: end } },
-    select: { type: true, amount: true, splits: { select: { userId: true, amount: true } } },
+    select: {
+      type: true,
+      amount: true,
+      homeRateUnits: true,
+      homeRateMinor: true,
+      splits: { select: { userId: true, amount: true } },
+    },
   });
   // 收支方向只有一份定義（domain/search.ts），首頁不自己再寫一次：
   // 淨支出 = 消費 − 退款，收入 = INCOME。
@@ -599,7 +638,17 @@ export async function monthSummary(ctx: BookContext, now = new Date()) {
   const myShare = rows
     .filter((r) => BURDEN_TYPES.includes(r.type))
     .reduce((a, r) => a + r.splits.filter((s) => s.userId === ctx.me.userId).reduce((b, s) => b + s.amount, 0), 0);
-  return { label, expense: totals.netExpense, income: totals.income, myShare };
+  /*
+   * 台幣參考總額：**每一筆用它自己鎖住的匯率**換算再加總，不是把總額拿現在的匯率換一次。
+   * 旅途中改過匯率的話兩者會差很多，而這一行要回答的是「這趟到目前為止大約花了多少台幣」。
+   */
+  const homeExpense = sumHomeMinor(
+    rows
+      .filter((r) => r.type !== "INCOME")
+      .map((r) => ({ amount: r.type === "REFUND" ? -r.amount : r.amount, homeRate: homeRateOf(r) })),
+    ctx.book.homeRate,
+  );
+  return { label, expense: totals.netExpense, income: totals.income, myShare, homeExpense };
 }
 
 // ───────────────────────── 結算 ─────────────────────────

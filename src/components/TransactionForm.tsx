@@ -4,8 +4,8 @@ import { useActionState, useMemo, useState } from "react";
 import { useMoney } from "./CurrencyContext";
 import { deleteTransactionAction, saveTransactionAction } from "@/app/actions/transactions";
 import { homeApprox, parseAmount, toInputString } from "@/lib/money";
-import { CURRENCIES, currencyOf, formatCurrency, minorPerUnit, parseCurrencyAmount } from "@/lib/currency";
-import { toBaseAmount } from "@/server/domain/exchange";
+import { CURRENCIES, currencyOf, minorPerUnit, parseCurrencyAmount } from "@/lib/currency";
+import { basePerUnit, toBaseAmount } from "@/server/domain/exchange";
 import { initialCalc, isPending, press, type CalcState } from "@/lib/calc";
 import { computeSplit, type SplitMethod, type SplitRule } from "@/server/domain/split";
 import { normalizeTags } from "@/server/domain/search";
@@ -411,8 +411,8 @@ export function TransactionForm(props: {
                     ≈ {amount !== null ? fmtMoney(amount) : fmtMoney(0)}
                   </span>
                   <span className="truncate text-[11px] text-stone-400">
-                    {rateUnits.toLocaleString("en-US")} {currency} ={" "}
-                    {formatCurrency(rateBase, baseCurrency, { symbol: false })} {baseCurrency}
+                    1 {currency} = {basePerUnit({ foreignUnits: rateUnits, baseMinor: rateBase }, baseCurrency)}{" "}
+                    {baseCurrency}
                   </span>
                 </div>
               )}
@@ -422,8 +422,8 @@ export function TransactionForm(props: {
                     約 {homeApproxText}
                   </span>
                   <span className="truncate text-[11px] text-stone-400">
-                    {props.homeRate!.units.toLocaleString("en-US")} {baseCurrency} ={" "}
-                    {(props.homeRate!.minor / 100).toLocaleString("en-US")} TWD
+                    1 {baseCurrency} ={" "}
+                    {basePerUnit({ foreignUnits: props.homeRate!.units, baseMinor: props.homeRate!.minor }, "TWD")} TWD
                   </span>
                 </div>
               )}

@@ -10,7 +10,7 @@
  *   第 8 步：結案後 UI 真的擋住記帳（server 端已有整合測試，這裡驗畫面）
  */
 import { expect, type Page } from "@playwright/test";
-import { go, loaded, pageText, shot, step } from "./lib";
+import { go, loaded, mainText, pageText, shot, step } from "./lib";
 
 /** 原帳本的名字（couple-flow.ts 的 prologue 建立的那本） */
 const MAIN_NAME = "艾與本的帳本";
@@ -59,20 +59,25 @@ export async function v15Books(a: Page, b: Page) {
   await a.waitForURL(/\/books\/new$/);
   await loaded(a);
   await a.getByLabel("帳本名稱").fill("日本旅遊");
-  await a.getByLabel("本位幣").selectOption("JPY");
+  await a.getByLabel("旅行地區／幣別").selectOption("JPY");
+  // 幣別與匯率在同一頁填完，不用再跑一趟設定頁
+  await a.getByLabel("台幣金額").fill("0.215");
   await a.getByRole("button", { name: /建立並切換過去/ }).click();
   await a.waitForURL(/\/$/);
   await loaded(a);
   expect(await currentBook(a), "建立後沒有自動切換過去").toContain("日本旅遊");
   await shot(a, "v15-02-trip");
-  step("建立「日本旅遊」（JPY），建立後直接切換過去（規格點 12）");
+  step("建立「日本旅遊」（JPY ＋ 1 JPY = 0.215 TWD），建立後直接切換過去（規格點 12）");
 
   // ───────── 3b. 旅遊帳本首頁只講錢：沒有任務、沒有獎勵 ─────────
-  const tripHome = await pageText(a, "/");
+  const tripHome = await mainText(a, "/");
   expect(tripHome, "旅遊帳本首頁不該出現今日任務").not.toContain("今日任務");
   expect(tripHome, "旅遊帳本首頁不該出現今日獎勵").not.toContain("今日獎勵");
   expect(tripHome, "旅遊帳本首頁應該以最近紀錄為主").toContain("最近紀錄");
-  step("旅遊帳本首頁不顯示任務與獎勵，記帳相關的往上移");
+  expect(tripHome, "旅遊帳本首頁不該出現基金").not.toContain("基金");
+  expect(tripHome, "旅遊帳本首頁不該出現「可以花的錢」").not.toContain("可以花的錢");
+  expect(tripHome, "旅遊帳本首頁應該看得到這趟旅行的匯率").toContain("1 JPY ≈ 0.215 TWD");
+  step("旅遊帳本首頁只留記帳相關：沒有任務、獎勵、基金，但有這趟旅行的匯率");
 
   // ───────── 4. 旅遊帳本是乾淨的：看不到原帳本的交易 ─────────
   const tripFeed = await pageText(a, "/transactions");

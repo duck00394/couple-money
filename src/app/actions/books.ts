@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAppContext } from "@/server/context";
 import { requireUser } from "@/server/auth/session";
-import { closeBook, createSecondaryBook, reopenBook, switchBook } from "@/server/services/books";
-import { parseAmount } from "@/lib/money";
+import { closeBook, createSecondaryBook, homeRatePair, reopenBook, switchBook } from "@/server/services/books";
 import { str, toActionState, type ActionState } from "@/server/actions";
 
 /**
@@ -35,8 +34,8 @@ export async function createBookAction2(_: ActionState, form: FormData): Promise
       startOn: str(form, "startOn") || null,
       endOn: str(form, "endOn") || null,
       note: str(form, "note") || null,
-      homeRateUnits: Number(str(form, "homeRateUnits")) || null,
-      homeRateMinor: parseAmount(str(form, "homeRateValue")),
+      // 表單只收「1 個外幣 = ? 台幣」，存法由 parseRatePair() 決定（見 exchange.ts）
+      ...homeRatePair(str(form, "homeRateValue")),
     });
     // 使用者是主動建立的，直接切過去才符合預期（規格點 12）
     if (str(form, "switchTo") !== "0") await switchBook(user.id, book.id);

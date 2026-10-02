@@ -7,6 +7,7 @@ import { deleteBookAction, updateBookAction2 } from "@/app/actions/bookEdit";
 import { ActionForm } from "./ActionForm";
 import { Button, Card, DateInput, ErrorText, Field, Input, Select, cx } from "./ui";
 import { CURRENCIES } from "@/lib/currency";
+import { basePerUnit, parseRatePair } from "@/server/domain/exchange";
 
 /**
  * 新增帳本。
@@ -19,7 +20,11 @@ export function NewBookForm({ baseCurrency }: { baseCurrency: string }) {
   const [type, setType] = useState<"TRIP" | "CUSTOM">("TRIP");
   // 選了外幣就在這一頁直接填匯率，不用再跑一趟設定頁
   const [currency, setCurrency] = useState(baseCurrency);
+  const [rateText, setRateText] = useState("");
   const foreign = currency !== "TWD";
+  // 打字的同時就把那句話寫出來，確認方向沒有填反（0.21 還是 4.76）
+  const ratePair = parseRatePair(rateText, "TWD");
+  const ratePreview = ratePair ? `1 ${currency} ≈ ${basePerUnit(ratePair, "TWD")} TWD` : null;
 
   return (
     <ActionForm action={action} className="space-y-4">
@@ -58,7 +63,10 @@ export function NewBookForm({ baseCurrency }: { baseCurrency: string }) {
         </>
       )}
 
-      <Field label="本位幣" hint="這本帳本的統計與結算用哪個幣別">
+      <Field
+        label={type === "TRIP" ? "旅行地區／幣別" : "本位幣"}
+        hint={type === "TRIP" ? "這趟旅行用當地幣別記帳，統計與結算也用它" : "這本帳本的統計與結算用哪個幣別"}
+      >
         <Select name="baseCurrency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
           {CURRENCIES.map((c) => (
             <option key={c.code} value={c.code}>{c.code}・{c.name}</option>
@@ -67,13 +75,23 @@ export function NewBookForm({ baseCurrency }: { baseCurrency: string }) {
       </Field>
 
       {foreign && (
-        <Field label="換回台幣大概多少" hint="只影響金額旁邊那行「約 NT$」，不會改到任何記帳金額；之後可以再改">
+        <Field label="匯率" hint={`1 ${currency} 大約多少台幣，小數最多六位。之後在首頁隨時可以改`}>
           <div className="flex items-center gap-2">
-            <Input name="homeRateUnits" inputMode="numeric" defaultValue={currency === "JPY" ? "100" : currency === "KRW" ? "1000" : "1"} className="w-20 text-center" aria-label={`${currency} 數量`} />
-            <span className="shrink-0 text-sm font-semibold text-stone-600">{currency} =</span>
-            <Input name="homeRateValue" inputMode="decimal" placeholder="0" className="flex-1 text-center" aria-label="台幣金額" />
+            <span className="shrink-0 text-sm font-semibold text-stone-600">1 {currency} =</span>
+            <Input
+              name="homeRateValue"
+              inputMode="decimal"
+              value={rateText}
+              onChange={(e) => setRateText(e.target.value)}
+              placeholder="0"
+              className="flex-1 text-center"
+              aria-label="台幣金額"
+            />
             <span className="shrink-0 text-sm font-semibold text-stone-600">TWD</span>
           </div>
+          {ratePreview && (
+            <p className="mt-1.5 text-xs text-stone-500" data-testid="new-book-rate-preview">{ratePreview}</p>
+          )}
         </Field>
       )}
 
@@ -229,9 +247,15 @@ export function EditBookForm({
       {!isHome && (
         <Field label="換回台幣的參考匯率" hint="只影響旁邊那行「約 NT$」，不會改到任何金額">
           <div className="flex items-center gap-2">
-            <Input name="homeRateUnits" inputMode="numeric" defaultValue={String(homeRate?.units ?? 100)} className="w-20 text-center" aria-label={`${baseCurrency} 數量`} />
-            <span className="shrink-0 text-sm font-semibold text-stone-600">{baseCurrency} =</span>
-            <Input name="homeRateValue" inputMode="decimal" defaultValue={homeRate ? String(homeRate.minor / 100) : ""} placeholder="0" className="flex-1 text-center" aria-label="台幣金額" />
+            <span className="shrink-0 text-sm font-semibold text-stone-600">1 {baseCurrency} =</span>
+            <Input
+              name="homeRateValue"
+              inputMode="decimal"
+              defaultValue={homeRate ? basePerUnit({ foreignUnits: homeRate.units, baseMinor: homeRate.minor }, "TWD") : ""}
+              placeholder="0"
+              className="flex-1 text-center"
+              aria-label="台幣金額"
+            />
             <span className="shrink-0 text-sm font-semibold text-stone-600">TWD</span>
           </div>
         </Field>

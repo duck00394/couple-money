@@ -4,10 +4,11 @@ import { TaskRow } from "@/components/TaskRow";
 import { TxRow } from "@/components/TxRow";
 import { SuggestBar } from "@/components/PurchaseForms";
 import { Badge, Card, Empty, SectionTitle, TwoPartProgress } from "@/components/ui";
-import { homeApprox, moneyFmt } from "@/lib/money";
+import { formatMoney, moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
-import { listMyBooks } from "@/server/services/books";
+import { HOME_CURRENCY, listMyBooks } from "@/server/services/books";
 import { BookSwitcher } from "@/components/BookSwitcher";
+import { HomeRateCard } from "@/components/HomeRateCard";
 import { ClosedBookBanner } from "@/components/BookForms2";
 import { listFunds } from "@/server/services/funds";
 import { getBalances, listTransactions, monthSummary } from "@/server/services/ledger";
@@ -35,15 +36,33 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
   const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const books = await listMyBooks(user.id);
   /*
-   * V16：旅遊／自訂帳本的首頁只講錢。
+   * V16：旅遊帳本的首頁只做「旅遊記帳」這一件事。
    *
-   * 出國時打開 App 的第一件事是記帳，不是看今天輪到誰洗碗 —— 家事任務是
-   * 原帳本（日常生活）的東西。旅遊帳本本來也不會有任務（建立時不複製），
-   * 所以這一區在那裡永遠是空的，留著只是把「最近紀錄」往下推。
+   * 出國打開 App 的第一件事是記帳，不是看今天輪到誰洗碗、也不是看旅遊基金存多少。
+   * 家事任務、獎勵、基金、共同目標都是**原帳本（日常生活）**的長期功能，
+   * 而且旅遊帳本建立時本來就不複製它們 —— 那些區塊在那裡永遠是空的，
+   * 留著只會把「記一筆」與「最近紀錄」往下推。
+   *
+   * 旅遊帳本首頁保留：記一筆 → 最近紀錄 → 欠款 → 本月花費。
+   * 欠款刻意留著：出國最常吵的就是「這餐誰付的、誰還欠誰」。
+   *
+   * 判斷沿用既有的 `Book.type`，沒有另一套帳本分類。
    */
   const isDaily = ctx.book.type === "MAIN";
   const currentBook = books.find((b) => b.id === ctx.book.id) ?? books[0];
-  await applyMissedPenalties(ctx);
+  /*
+   * 本位幣不是台幣 → 這是一本「出國用」的帳本，首頁要有匯率小卡。
+   * 台幣帳本（原帳本、國內旅遊、裝修）完全不會多出任何匯率 UI。
+   * 用的是既有的 Book.baseCurrency 與 Book.homeRate*，沒有新欄位。
+   */
+  const isForeignBook = ctx.book.baseCurrency !== HOME_CURRENCY;
+  // 旅遊帳本有填起訖日就一起顯示（「這趟旅行是哪幾天」）
+  const tripDates =
+    currentBook && (currentBook.startOn || currentBook.endOn)
+      ? [currentBook.startOn, currentBook.endOn].filter(Boolean).map((d) => d!.slice(5).replace("-", "/")).join("–")
+      : null;
+  // 這一步會寫入（補登遲交的懲罰），而且只跟任務有關。旅遊帳本沒有任務，跳過。
+  if (isDaily) await applyMissedPenalties(ctx);
   const now = new Date();
   const todayKey = toDateKey(now);
   const today = dayRange(todayKey);
@@ -121,13 +140,26 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
         <div className="mt-3 flex items-end justify-between gap-3 px-4">
           <div className="min-w-0">
             <h1 className="hand truncate text-[26px] font-bold leading-none text-stone-800">今天</h1>
-            <p className="mt-1 truncate text-xs text-stone-500">嗨，{ctx.me.nickname}・{todayLabel}</p>
+            <p className="mt-1 truncate text-xs text-stone-500">
+              嗨，{ctx.me.nickname}・{todayLabel}
+              {tripDates && <span className="text-stone-400">・{tripDates}</span>}
+            </p>
           </div>
           <Link href="/transactions/new" className="press shrink-0 rounded-full border-[1.5px] border-stone-800 bg-brand-500 px-4 py-2.5 text-[15px] font-semibold tracking-wide text-white shadow-md">
             ＋ 記一筆
           </Link>
         </div>
       </header>
+
+      {/* ── 1b. 匯率：出國記帳第二重要的資訊（第一是「記一筆」，就在上面那顆鈕）──
+             就地改，不用進設定頁；只顯示這本帳本的那一種外幣 ── */}
+      {isForeignBook && (
+        <HomeRateCard
+          currency={ctx.book.baseCurrency}
+          rate={ctx.book.homeRate}
+          canWrite={ctx.book.status === "ACTIVE"}
+        />
+      )}
 
       {/* ── 1. 今天要做什麼：每天打開 App 的第一件事，直接在這裡打卡 ──
              旅遊帳本不顯示（那裡的第一件事是記帳） ── */}
@@ -262,9 +294,12 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
         </Card>
       )}
 
-      {/* ── 5. 可以花的錢：帳戶裡真的能動的錢。
-             刻意不叫「可自由使用」——那個詞在帳戶頁與基金頁已經有固定意思
-             （帳戶餘額 − 已指定給基金），這裡還多扣了預購待結，數字不一樣。 ── */}
+      {/* ── 5 & 6：「可以花的錢」與「基金」都是長期理財的東西，旅遊帳本不顯示。
+             「可以花的錢」＝帳戶可用 − 已指定給基金 − 預購待結，本身就是基金／預購的概念；
+             旅遊帳本沒有基金也沒有預購，剩下的只是一個從 0 開始往下扣的數字，
+             放在首頁只會把「最近紀錄」往下推。 ── */}
+      {isDaily && (
+        <>
       <SectionTitle right={<Link href="/accounts" className="text-sm text-brand-600">看帳戶</Link>}>可以花的錢</SectionTitle>
       <Card className="px-5 py-4" data-testid="available-card">
         <p className="text-xs text-stone-500">扣掉基金與預購待結</p>
@@ -310,6 +345,8 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
           ))
         )}
       </Card>
+        </>
+      )}
 
       {/* ── 7. 本月總覽 ── */}
       <SectionTitle>本月</SectionTitle>
@@ -322,10 +359,13 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
           {fmtMoney(summary.expense)}
         </p>
         {/* V16：外幣帳本在旁邊附一行「約 NT$」—— 出國記帳時腦子裡是日圓，
-            但回國之後想知道的是台幣。只是參考值，不參與任何計算。 */}
-        {homeApprox(summary.expense, ctx.book.homeRate) && (
+            但回國之後想知道的是台幣。只是參考值，不參與任何計算。
+
+            這個數字是**每一筆用它自己記帳當下的匯率**換算再加總的（monthSummary 算好），
+            所以在首頁把匯率改掉，已經記過的那幾筆不會跟著被重算。 */}
+        {summary.homeExpense !== null && (
           <p className="mt-0.5 text-sm text-stone-500" data-testid="month-expense-home">
-            約 {homeApprox(summary.expense, ctx.book.homeRate)}
+            約 {formatMoney(summary.homeExpense, { symbol: "NT$" })}
           </p>
         )}
         <div className="mt-5 grid grid-cols-2 gap-3 border-t border-line pt-4 text-sm">
@@ -341,7 +381,12 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
       </Link>
 
       <p className="mt-9 text-center text-xs leading-relaxed text-stone-400">
-        <Link href="/goals" className="underline underline-offset-2">共同目標</Link>・
+        {/* 共同目標是長期的事，旅遊帳本不放 */}
+        {isDaily && (
+          <>
+            <Link href="/goals" className="underline underline-offset-2">共同目標</Link>・
+          </>
+        )}
         <Link href="/activity" className="underline underline-offset-2">最近動態</Link>・
         <Link href="/settle" className="underline underline-offset-2">結算</Link>・
         <Link href="/more" className="underline underline-offset-2">更多</Link>

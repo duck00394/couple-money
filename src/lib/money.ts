@@ -134,11 +134,52 @@ export function sum(values: number[]): number {
  */
 export function homeApprox(
   minor: number,
-  homeRate: { units: number; minor: number } | null,
+  homeRate: HomeRate | null,
 ): string | null {
-  if (!homeRate || !homeRate.units || !homeRate.minor) return null;
-  // minor / 100 = 本位幣單位數；再乘 homeRate.minor / homeRate.units
-  const twd = Math.round((minor / MINOR_PER_UNIT) * (homeRate.minor / homeRate.units));
+  const twd = toHomeMinor(minor, homeRate);
+  if (twd === null) return null;
   // 這一行刻意用 NT$：主角是外幣金額，旁邊這個要一眼看出是台幣
   return formatMoney(twd, { symbol: "NT$" });
+}
+
+/** 「units 個本位幣 = minor 個台幣最小單位」。交易上鎖住的那一份與帳本目前那一份同形。 */
+export interface HomeRate {
+  units: number;
+  minor: number;
+}
+
+/** homeApprox 的數字版：本位幣最小單位 → 台幣最小單位。要加總的時候用這個。 */
+export function toHomeMinor(minor: number, homeRate: HomeRate | null): number | null {
+  if (!homeRate || !homeRate.units || !homeRate.minor) return null;
+  // minor / 100 = 本位幣單位數；再乘 homeRate.minor / homeRate.units
+  return Math.round((minor / MINOR_PER_UNIT) * (homeRate.minor / homeRate.units));
+}
+
+/**
+ * 一段期間的「台幣參考總額」。
+ *
+ * 關鍵在於**每一筆用它自己鎖住的匯率**換算，再加總 —— 不是把總額拿現在的匯率換一次。
+ * 旅途中改過匯率的話，兩者會差很多：
+ *
+ *   交易 A ¥5,000 ＠ 0.21 → NT$1,050
+ *   交易 B ¥5,000 ＠ 0.22 → NT$1,100
+ *   總額 NT$2,150（就算現在的匯率已經變成 0.23 也一樣）
+ *
+ * rows 的 amount 請先帶好正負號（退款是負的）。
+ * 沒有鎖住匯率的舊資料退回 fallback（帳本目前的匯率）—— 那是唯一還原得了的近似值，
+ * 但不會寫回資料庫，所以不算偽造歷史。全部都換不出來時回傳 null（那一行就不顯示）。
+ */
+export function sumHomeMinor(
+  rows: Array<{ amount: number; homeRate: HomeRate | null }>,
+  fallback: HomeRate | null,
+): number | null {
+  let total = 0;
+  let any = false;
+  for (const r of rows) {
+    const twd = toHomeMinor(r.amount, r.homeRate ?? fallback);
+    if (twd === null) continue;
+    total += twd;
+    any = true;
+  }
+  return any ? total : null;
 }

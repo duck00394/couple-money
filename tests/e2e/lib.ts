@@ -25,6 +25,17 @@ export async function pageText(page: Page, path?: string) {
   return (await page.locator("body").innerText()).replace(/\s+/g, " ");
 }
 
+/**
+ * 只讀 <main> 的文字。
+ *
+ * 首頁「有沒有某個區塊」要用這個，不要用 pageText —— 底部導覽固定有「基金」「任務」
+ * 那幾顆 tab，整頁文字永遠包含它們，會把「首頁沒有基金區塊」誤判成失敗。
+ */
+export async function mainText(page: Page, path?: string) {
+  if (path) await go(page, path);
+  return (await page.locator("main").first().innerText()).replace(/\s+/g, " ");
+}
+
 /** 等待 locator 出現某段文字。 */
 export async function expectText(page: Page, text: string | RegExp) {
   await expect(page.getByText(text).first()).toBeVisible();

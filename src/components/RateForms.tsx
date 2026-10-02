@@ -5,13 +5,17 @@ import { removeRateAction, setRateAction } from "@/app/actions/rates";
 import { ActionForm } from "./ActionForm";
 import { Button, Card, ErrorText, Input, cx } from "./ui";
 import { formatCurrency, minorPerUnit } from "@/lib/currency";
-import { parseAmount } from "@/lib/money";
+import { basePerUnit, parseRatePair, toBaseAmount } from "@/server/domain/exchange";
 
 /**
  * 一個幣別的匯率設定列。
  *
- * 畫面刻意用「100 JPY = 21.5 TWD」這種寫法，而不是「JPY 0.215」——
- * 後者日常使用很容易看錯一個零，而這個 App 是出國時單手在用的。
+ * 一列就是一句話，而且方向固定：**1 個外幣等於多少本位幣**。
+ *
+ *   1 JPY = [0.22] TWD
+ *
+ * 左邊永遠是 1，不給改 —— 出國看到的牌告就是這個方向，少一個欄位就少一次誤填。
+ * 需要更細的匯率直接多打小數（1 JPY = 0.2185 TWD），存法會自己處理（見 exchange.ts）。
  */
 export function RateRow({
   code,
@@ -19,29 +23,28 @@ export function RateRow({
   symbol,
   baseCurrency,
   rate,
-  suggestedUnits,
 }: {
   code: string;
   name: string;
   symbol: string;
   baseCurrency: string;
   rate: { foreignUnits: number; baseMinor: number } | null;
-  suggestedUnits: number;
 }) {
   const [state, action, pending] = useActionState(setRateAction, undefined);
   const [delState, delAction, deleting] = useActionState(removeRateAction, undefined);
-  const [units, setUnits] = useState(String(rate?.foreignUnits ?? suggestedUnits));
-  const [value, setValue] = useState(
-    rate ? String(rate.baseMinor / minorPerUnit(baseCurrency)) : "",
-  );
+  const [value, setValue] = useState(rate ? basePerUnit(rate, baseCurrency) : "");
 
-  // 即時預覽：讓人在按儲存之前就看到「這樣設對不對」
-  const u = Number(units);
-  const v = parseAmount(value);
-  const preview =
-    Number.isFinite(u) && u > 0 && v !== null && v > 0
-      ? `1 ${code} ≈ ${formatCurrency(Math.round(v / u), baseCurrency)}`
-      : null;
+  /*
+   * 即時預覽：拿 100 個外幣當例子，確認方向沒有填反。
+   *
+   * 方向永遠是**外幣 → 本位幣**，不會反過來寫成「100 TWD = 476 JPY」——
+   * 使用者只需要回答一個問題：「1 元當地貨幣，大約多少台幣？」
+   */
+  const pair = parseRatePair(value, baseCurrency);
+  const sample = 100 * minorPerUnit(code);
+  const preview = pair
+    ? `${formatCurrency(sample, code)} ≈ ${formatCurrency(toBaseAmount(sample, { currency: code, ...pair }), baseCurrency)}`
+    : null;
 
   return (
     <Card className={cx("space-y-3", rate ? "" : "opacity-95")} data-testid="rate-row">
@@ -59,17 +62,9 @@ export function RateRow({
 
       <ActionForm action={action} className="space-y-2.5">
         <input type="hidden" name="currency" value={code} />
-        {/* 一行就是一句話：「100 JPY = 21.5 TWD」 */}
+        {/* 一行就是一句話：「1 JPY = 0.22 TWD」 */}
         <div className="flex items-center gap-2">
-          <Input
-            name="foreignUnits"
-            inputMode="numeric"
-            value={units}
-            onChange={(e) => setUnits(e.target.value)}
-            className="w-20 text-center"
-            aria-label={`${code} 數量`}
-          />
-          <span className="shrink-0 text-sm font-semibold text-stone-600">{code} =</span>
+          <span className="shrink-0 text-sm font-semibold text-stone-600">1 {code} =</span>
           <Input
             name="baseValue"
             inputMode="decimal"

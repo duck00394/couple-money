@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { ArtIcon } from "./ArtIcon";
-import { moneyFmt } from "@/lib/money";
+import { homeApprox, moneyFmt } from "@/lib/money";
 import { formatCurrency } from "@/lib/currency";
-import { allocateForeign, rateLabel } from "@/server/domain/exchange";
+import { allocateForeign, basePerUnit, rateLabel } from "@/server/domain/exchange";
 import { dateHeading, hasTimeOfDay, toDateKey, toTimeKey } from "@/lib/dates";
 import { TX_TYPE_LABEL, type TxType } from "@/server/domain/ledger";
 import type { BookContext } from "@/server/services/books";
@@ -23,6 +23,19 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
     tx.foreignAmount != null && tx.currency && tx.splits.length > 0
       ? allocateForeign(tx.foreignAmount, tx.splits.map((s) => Math.abs(s.amount)))
       : null;
+  /*
+   * V16：台幣參考值用**這筆交易當初鎖住的匯率**，不是帳本現在的匯率。
+   *
+   * 所以旅途中在首頁把匯率改掉，這一筆仍然顯示記帳那天的「約 NT$1,050」。
+   * 舊資料（還沒有鎖匯率的那些）退回帳本目前的匯率 —— 算得出一個近似值，
+   * 總比整行消失好，而且不會寫回資料庫。
+   */
+  const lockedHomeRate =
+    tx.homeRateUnits && tx.homeRateMinor ? { units: tx.homeRateUnits, minor: tx.homeRateMinor } : null;
+  const homeText = homeApprox(tx.amount, lockedHomeRate ?? ctx.book.homeRate);
+  const homeRateText = lockedHomeRate
+    ? `1 ${ctx.book.baseCurrency} = ${basePerUnit({ foreignUnits: lockedHomeRate.units, baseMinor: lockedHomeRate.minor }, "TWD")} TWD`
+    : null;
   return (
     <Card className="space-y-3 text-sm" data-testid="tx-detail">
       <div className="flex items-start justify-between gap-3">
@@ -56,7 +69,17 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
             )}
           </div>
         ) : (
-          <p className="shrink-0 text-2xl font-bold">{fmtMoney(tx.amount)}</p>
+          <div className="shrink-0 text-right">
+            <p className="text-2xl font-bold">{fmtMoney(tx.amount)}</p>
+            {homeText && (
+              <p className="text-sm text-stone-600" data-testid="tx-home">約 {homeText}</p>
+            )}
+            {homeRateText && (
+              <p className="mt-0.5 text-[11px] text-stone-400" data-testid="tx-home-rate">
+                交易時匯率 {homeRateText}
+              </p>
+            )}
+          </div>
         )}
       </div>
       {!countsAsMoney && (

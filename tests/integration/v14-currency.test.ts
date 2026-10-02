@@ -7,6 +7,7 @@ import * as budgets from "../../src/server/services/budgets";
 import * as transfers from "../../src/server/services/transfers";
 import * as search from "../../src/server/services/search";
 import { accountBalances, netPositions } from "../../src/server/domain/balance";
+import { basePerUnit, parseRatePair, toBaseAmount } from "../../src/server/domain/exchange";
 import { EMPTY_FILTER } from "../../src/server/domain/search";
 
 const D = (d: number) => `2026-10-${String(d).padStart(2, "0")}`;
@@ -297,6 +298,25 @@ describe("V14：多幣別與自訂匯率", () => {
   it("不合法的匯率會被擋下來", async () => {
     await rejects(rates.setRate(c.ctxA, { currency: "JPY", foreignUnits: 0, baseMinor: 100 }), "RATE_UNITS");
     await rejects(rates.setRate(c.ctxA, { currency: "JPY", foreignUnits: 100, baseMinor: 0 }), "RATE_VALUE");
+  });
+
+  it("V16：使用者輸入「1 JPY = 0.2185」時，存的是放大後的整數對，而且換算一致", async () => {
+    // 畫面只收一個數字，parseRatePair 負責轉成整數對；台幣只到分，所以左右同時放大 100 倍
+    const pair = parseRatePair("0.2185", "TWD")!;
+    assert.deepEqual(pair, { foreignUnits: 100, baseMinor: 2185 });
+    await rates.setRate(c.ctxA, { currency: "THB", ...pair });
+    const row = await prisma.exchangeRate.findFirstOrThrow({
+      where: { bookId: c.ctxA.book.id, currency: "THB" },
+    });
+    assert.equal(row.foreignUnits, 100);
+    assert.equal(row.baseMinor, 2185);
+    // 記一筆 10,000 泰銖（當成有兩位小數的幣別 → 1,000,000 最小單位）：
+    // 10,000 × 0.2185 = NT$2,185
+    const locked = await rates.rateFor(c.ctxA, "THB");
+    assert.equal(toBaseAmount(1_000_000, locked!), $(2185));
+    // 回填輸入框時要看到他當初輸入的 0.2185，不是 21.85
+    assert.equal(basePerUnit(row, "TWD"), "0.2185");
+    await rates.removeRate(c.ctxA, "THB");
   });
 
   it("同一個幣別重複設定是更新而不是新增一列", async () => {

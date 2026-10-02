@@ -12,7 +12,8 @@ import { EMPTY_FILTER, totalsFromGroups, type SearchTotals } from "../domain/sea
 import { bucketByMonth, categoryShares, monthKeyRange, type CategoryShare } from "../domain/stats";
 import { buildTransactionWhere } from "./search";
 import { fundBalances, pendingByFund } from "./funds";
-import { getBalances } from "./ledger";
+import { getBalances, homeRateOf } from "./ledger";
+import { sumHomeMinor, type HomeRate } from "@/lib/money";
 import type { BookContext } from "./books";
 import { toIconKey } from "../../lib/icons";
 
@@ -42,6 +43,11 @@ export interface MonthStats {
   borne: { me: number; partner: number };
   /** 收入進到誰的帳戶（Payment 側） */
   income: PersonSplit;
+  /**
+   * 淨支出的**台幣參考總額**（外幣帳本才有，台幣帳本是 null）。
+   * 每一筆用它自己鎖住的匯率換算再加總，所以改匯率不會把過去的統計改掉。
+   */
+  homeNetExpense: number | null;
   categories: Array<CategoryShare & { name: string; icon: string }>;
 }
 
@@ -67,6 +73,21 @@ export async function monthStats(ctx: BookContext, month: string): Promise<Month
   ]);
 
   const totals = totalsFromGroups(typeGroups.map((g) => ({ type: g.type, count: g._count._all, amount: g._sum.amount ?? 0 })));
+  /*
+   * 台幣參考總額。上面那些 groupBy 加不出來（每一筆的匯率不一樣），所以外幣帳本多撈一次。
+   * 台幣帳本完全不會跑這一段，統計頁的查詢數跟以前一樣。
+   */
+  const homeNetExpense = ctx.book.homeRate
+    ? sumHomeMinor(
+        (
+          await prisma.transaction.findMany({
+            where: { AND: [where, { type: FLOW_TYPES }] },
+            select: { type: true, amount: true, homeRateUnits: true, homeRateMinor: true },
+          })
+        ).map((r) => ({ amount: r.type === "REFUND" ? -r.amount : r.amount, homeRate: homeRateOf(r) })),
+        ctx.book.homeRate,
+      )
+    : null;
 
   const partnerId = ctx.partner?.userId ?? null;
   const pick = (rows: Array<{ userId: string | null; _sum: { amount: number | null } }>, sign: 1 | -1): PersonSplit => {
@@ -84,6 +105,7 @@ export async function monthStats(ctx: BookContext, month: string): Promise<Month
   return {
     month,
     totals,
+    homeNetExpense,
     paid,
     borne: { me: bornePick.me, partner: bornePick.partner },
     income,
@@ -178,15 +200,22 @@ async function listFundSnapshot(ctx: BookContext) {
  * 包含已結案的；為每一本都 loadContext 一次太浪費。呼叫端已經先用
  * listMyBooks() 確認過這些 bookId 都是這個使用者的帳本了。
  */
-export async function bookTotals(bookId: string) {
+export async function bookTotals(bookId: string, homeRate: HomeRate | null = null) {
   const rows = await prisma.transaction.findMany({
     where: { bookId, deletedAt: null, status: "POSTED", type: { in: ["EXPENSE", "INCOME", "REFUND"] } },
-    select: { type: true, amount: true },
+    select: { type: true, amount: true, homeRateUnits: true, homeRateMinor: true },
   });
   const by = (t: string) => rows.filter((r) => r.type === t).reduce((a, r) => a + r.amount, 0);
   return {
     count: rows.length,
     expense: by("EXPENSE") - by("REFUND"),
     income: by("INCOME"),
+    /** 台幣參考總額：每一筆用它自己當初鎖住的匯率換算再加總（homeRate 只是舊資料的退路） */
+    homeExpense: sumHomeMinor(
+      rows
+        .filter((r) => r.type !== "INCOME")
+        .map((r) => ({ amount: r.type === "REFUND" ? -r.amount : r.amount, homeRate: homeRateOf(r) })),
+      homeRate,
+    ),
   };
 }

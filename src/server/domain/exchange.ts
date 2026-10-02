@@ -10,15 +10,23 @@
  * 舊交易的 amount 早就是固定的數字了 —— 不是「我們記得不要重算」，
  * 而是**根本沒有任何程式會拿現在的匯率去碰歷史交易**。
  *
- * 匯率的存法刻意不是小數，而是一對整數：
+ * 匯率一律用「1 外幣 = ? 本位幣」這個方向，因為那就是出國時腦子裡的算法：
+ * 看到 ¥2,500，想的是「乘 0.22 大概多少台幣」。所以輸入框也只有一個數字：
  *
- *   rateForeignUnits = 100     ┐
- *   rateBaseMinor    = 2150    ┘  就是畫面上那句「100 JPY = 21.5 TWD」
+ *   1 JPY = [0.22] TWD
  *
- * 好處有三個：
- *   1. 跟使用者輸入的東西一模一樣，不會有「存 0.215 顯示 21.5」的來回轉換誤差
- *   2. 換算全程整數運算，沒有浮點誤差
- *   3. 畫面可以直接顯示「100 JPY = 21.5 TWD」，而不是容易看錯的「JPY 0.215」
+ * 但存起來**不是小數**，而是一對整數（避免浮點誤差，換算全程整數運算）：
+ *
+ *   rateForeignUnits  ┐
+ *   rateBaseMinor     ┘  baseMinor ÷ (foreignUnits × 本位幣最小單位) 就是那個 0.22
+ *
+ * 小數位數比本位幣能表示的還多時（例如 1 JPY = 0.2185 TWD，台幣只到分），
+ * 就把左右兩邊同時放大 10 的次方 —— 比值一樣，而且兩邊都還是整數：
+ *
+ *   1 JPY = 0.2185 TWD  →  foreignUnits = 100、baseMinor = 2185
+ *
+ * 顯示一律由 basePerUnit() 還原回「1 JPY = 0.2185 TWD」，所以使用者看到的
+ * 永遠就是他當初輸入的那個數字，放大只是存法的細節。
  */
 import { minorPerUnit } from "@/lib/currency";
 import { assert } from "./errors";
@@ -27,9 +35,13 @@ import { assert } from "./errors";
 export interface LockedRate {
   /** 原始幣別代碼，例如 "JPY" */
   currency: string;
-  /** 匯率左邊的數字：幾「單位」外幣（不是最小單位），例如 100 */
+  /**
+   * 分母：幾「單位」外幣（不是最小單位）。
+   * 使用者輸入的方向永遠是「1 外幣」，這裡會是 1；只有小數位數超過本位幣能表示的
+   * 範圍時才會是 10 / 100 / … （見檔頭說明）。
+   */
   foreignUnits: number;
-  /** 匯率右邊的數字：等於多少本位幣的**最小單位**，例如 2150（= 21.5 TWD） */
+  /** 分子：等於多少本位幣的**最小單位**。1 JPY = 0.22 TWD → foreignUnits 1、baseMinor 22 */
   baseMinor: number;
 }
 
@@ -112,27 +124,49 @@ export function allocateForeign(foreignTotal: number, baseShares: number[]): num
   return out;
 }
 
-/** 畫面上的匯率說明：「100 JPY = 21.5 TWD」。刻意不顯示 0.215 那種容易看錯的寫法。 */
+/** 畫面上的匯率說明：「1 JPY = 0.22 TWD」。方向永遠是「1 外幣 = ? 本位幣」。 */
 export function rateLabel(rate: LockedRate, baseCurrency: string): string {
-  const base = formatPlain(rate.baseMinor, baseCurrency);
-  return `${rate.foreignUnits.toLocaleString("en-US")} ${rate.currency} = ${base} ${baseCurrency}`;
+  return `1 ${rate.currency} = ${basePerUnit(rate, baseCurrency)} ${baseCurrency}`;
 }
 
-/** 不帶符號的數字字串（給 rateLabel 用，避免出現「= NT$21.5 TWD」這種重複）。 */
-function formatPlain(minor: number, code: string): string {
-  const per = minorPerUnit(code);
-  if (per === 1) return minor.toLocaleString("en-US");
-  const s = (minor / per).toFixed(String(per).length - 1);
-  // 去掉沒有意義的結尾 0：21.50 → 21.5，但 21.00 → 21
-  return s.replace(/\.?0+$/, "");
+/** 匯率輸入框允許的小數位數。日圓 0.2185 這種要四位，留到六位還有餘裕。 */
+export const MAX_RATE_DECIMALS = 6;
+
+/**
+ * 存起來的整數對 → 畫面上那個數字（「1 外幣 = ? 本位幣」的 ?）。
+ *
+ * 回傳字串而不是數字，因為這個值只拿去顯示或回填輸入框 ——
+ * 任何真正的換算都走 toBaseAmount()，用的是整數對本身。
+ */
+export function basePerUnit(rate: { foreignUnits: number; baseMinor: number }, baseCurrency: string): string {
+  const per = minorPerUnit(baseCurrency);
+  const v = rate.baseMinor / (rate.foreignUnits * per);
+  if (!Number.isFinite(v)) return "0";
+  // 去掉沒有意義的結尾 0：0.220000 → 0.22，30.000000 → 30
+  return v.toFixed(MAX_RATE_DECIMALS).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 /**
- * 一個「合理的預設匯率左邊單位」。
+ * 使用者輸入的「1 外幣 = ? 本位幣」→ 存起來的整數對。
  *
- * 日圓與韓元的數字很大，寫「1 JPY = 0.215 TWD」很難讀，所以預設用 100 / 1000。
- * 這只是建立設定時的起始值，使用者可以自己改。
+ * 不合法（空白、非數字、小數位數太多、0）時回傳 null，由呼叫端給錯誤訊息。
+ * 全程整數運算：digits 是把小數點拿掉之後的整數，pad / scale 都是 10 的次方。
  */
-export function suggestedUnits(code: string): number {
-  return { JPY: 100, KRW: 1000 }[code] ?? 1;
+export function parseRatePair(
+  text: string,
+  baseCurrency: string,
+): { foreignUnits: number; baseMinor: number } | null {
+  const cleaned = String(text ?? "").replace(/[,\s]/g, "");
+  if (!/^\d*\.?\d+$|^\d+\.?\d*$/.test(cleaned)) return null;
+  const [intPart = "", fracRaw = ""] = cleaned.split(".");
+  const frac = fracRaw.replace(/0+$/, "");
+  if (frac.length > MAX_RATE_DECIMALS) return null;
+  const digits = Number(`${intPart || "0"}${frac}`);
+  if (!Number.isSafeInteger(digits) || digits <= 0) return null;
+  const baseDecimals = String(minorPerUnit(baseCurrency)).length - 1;
+  // 本位幣表示得下 → 把數字補成最小單位；表示不下 → 分母跟著放大（比值不變）
+  const baseMinor = digits * 10 ** Math.max(0, baseDecimals - frac.length);
+  const foreignUnits = 10 ** Math.max(0, frac.length - baseDecimals);
+  if (!Number.isSafeInteger(baseMinor) || foreignUnits > MAX_RATE_UNITS) return null;
+  return { foreignUnits, baseMinor };
 }

@@ -33,6 +33,7 @@ import { v12PurchaseLog } from "./v12-purchase-log";
 import { v13Demo } from "./v13-demo";
 import { v14Currency } from "./v14-currency";
 import { v15Books } from "./v15-books";
+import { v16TripRate } from "./v16-trip-rate";
 
 /** 後續階段的流程依序接在 Phase 1 之後執行（兩人帳號延續使用）。 */
 const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
@@ -60,6 +61,7 @@ const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
   ["v12 purchase log", v12PurchaseLog],
   ["v14 currency", v14Currency],
   ["v15 books", v15Books],
+  ["v16 trip rate", v16TripRate],
   ["icon text", async (a) => iconText(a)],
   ["ux audit", async (a) => uxAudit(a)],
   // v13 必須放最後：它會清掉 cookie 來驗證「不用登入也能進 /demo」，

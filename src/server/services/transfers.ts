@@ -162,6 +162,10 @@ export async function createRefund(ctx: BookContext, input: RefundInput) {
           type: "REFUND",
           occurredAt,
           amount: input.amount,
+          // V16：退款會進「本月花費」的淨額，所以跟消費一樣要鎖住當下的台幣參考匯率，
+          // 不然總額裡一半是歷史匯率、一半是現在的匯率。
+          homeRateUnits: ctx.book.homeRate?.units ?? null,
+          homeRateMinor: ctx.book.homeRate?.minor ?? null,
           title: original.title,
           merchant: original.merchant,
           note: input.note.trim() || null,

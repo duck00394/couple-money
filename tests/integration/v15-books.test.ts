@@ -478,3 +478,101 @@ describe("V16：帳本設定與刪除", () => {
     assert.ok(left.some((x) => x.name === "台中"), "別本帳本被牽連刪掉了");
   });
 });
+
+/**
+ * V16：旅遊帳本首頁的匯率。
+ *
+ * 這一段對應「匯率不要放設定頁」那份規格：
+ *   * 匯率是**這本帳本自己的欄位**，日本改了不影響韓國（規格點 11）
+ *   * 首頁那張卡只送一個欄位，不會因此把名稱／日期清掉（規格點 6）
+ *   * 旅遊帳本不帶任何其他幣別的設定（規格點 12）
+ *   * 改匯率只影響之後記的帳（規格點 9，既有財務規則）
+ */
+describe("V16：旅遊帳本的匯率就在帳本上", () => {
+  let c: Awaited<ReturnType<typeof setupCouple>>;
+  let jp: string;
+  let kr: string;
+
+  before(async () => {
+    await reset();
+    c = await setupCouple();
+    jp = (await books.createSecondaryBook(c.ctxA, c.aId, {
+      name: "日本旅遊", type: "TRIP", baseCurrency: "JPY",
+      startOn: "2026-11-01", endOn: "2026-11-05", note: "大阪",
+      homeRateUnits: 1, homeRateMinor: $(0.21),
+    })).id;
+    kr = (await books.createSecondaryBook(c.ctxA, c.aId, {
+      name: "韓國旅遊", type: "TRIP", baseCurrency: "KRW",
+      homeRateUnits: 1000, homeRateMinor: $(23),
+    })).id;
+  });
+  after(() => prisma.$disconnect());
+
+  const ctxOf = (id: string) => books.loadContext(c.aId, id);
+
+  it("三本帳本各自有自己的幣別與匯率", async () => {
+    const list = await books.listMyBooks(c.aId);
+    assert.equal(list.find((b) => b.type === "MAIN")!.baseCurrency, "TWD");
+    assert.equal(list.find((b) => b.type === "MAIN")!.homeRate, null, "原帳本不該有匯率");
+    assert.deepEqual(list.find((b) => b.id === jp)!.homeRate, { units: 1, minor: 21 });
+    assert.deepEqual(list.find((b) => b.id === kr)!.homeRate, { units: 1000, minor: 2300 });
+  });
+
+  it("規格點 6：首頁只送一個欄位就能改匯率，名稱／日期／備註都還在", async () => {
+    await books.setHomeRate(await ctxOf(jp), "0.22");
+    const row = (await books.listMyBooks(c.aId)).find((b) => b.id === jp)!;
+    assert.deepEqual(row.homeRate, { units: 1, minor: 22 });
+    assert.equal(row.name, "日本旅遊", "改匯率把名稱清掉了");
+    assert.equal(row.startOn, "2026-11-01");
+    assert.equal(row.endOn, "2026-11-05");
+    assert.equal(row.note, "大阪");
+  });
+
+  it("★ 規格點 11：改日本的匯率不會動到韓國", async () => {
+    const before = (await books.listMyBooks(c.aId)).find((b) => b.id === kr)!.homeRate;
+    await books.setHomeRate(await ctxOf(jp), "0.23");
+    const after = (await books.listMyBooks(c.aId)).find((b) => b.id === kr)!.homeRate;
+    assert.deepEqual(after, before, "韓國帳本的匯率被日本帳本改掉了");
+    // 反過來也一樣
+    await books.setHomeRate(await ctxOf(kr), "0.025");
+    assert.deepEqual((await books.listMyBooks(c.aId)).find((b) => b.id === jp)!.homeRate, { units: 1, minor: 23 });
+  });
+
+  it("★ 規格點 9：改匯率之後，已經記過的那筆金額一毛都不變", async () => {
+    const ctx = await ctxOf(jp);
+    const acc = (await ledger.listAccounts(ctx)).find((a) => a.ownerId === c.aId)!.id;
+    const tx = await ledger.createTransaction(ctx, {
+      type: "EXPENSE", amount: $(5000), accountId: acc, categoryId: null,
+      title: "居酒屋", note: "", occurredOn: "2026-11-02",
+      split: { method: "EQUAL", participants: [{ userId: c.aId }, { userId: c.bId }] },
+      clientRequestId: rid(),
+    });
+    const before = await prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } });
+    await books.setHomeRate(await ctxOf(jp), "0.3");
+    const after = await prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } });
+    assert.equal(after.amount, before.amount, "交易金額被改匯率影響了");
+    assert.equal(after.amount, $(5000), "¥5,000 就是 ¥5,000（本位幣是日圓，匯率只是旁邊那行參考）");
+  });
+
+  it("規格點 12：旅遊帳本不帶任何其他幣別的設定（記帳頁不會冒出幣別選單）", async () => {
+    assert.deepEqual(await rates.listRates(await ctxOf(jp)), []);
+    assert.deepEqual(await rates.listRates(await ctxOf(kr)), []);
+  });
+
+  it("規格點 10：原帳本沒有匯率可以設在帳本上（它本來就是台幣）", async () => {
+    await rejects(books.setHomeRate(c.ctxA, "0.22"), "RATE_BASE");
+  });
+
+  it("亂輸入的匯率會被擋下來，而不是存成奇怪的數字", async () => {
+    for (const bad of ["", "abc", "0", "-1", "0.1234567"]) {
+      await rejects(books.setHomeRate(await ctxOf(jp), bad), "RATE_VALUE");
+    }
+    // 擋下來之後原本的值要還在
+    assert.deepEqual((await books.listMyBooks(c.aId)).find((b) => b.id === jp)!.homeRate, { units: 1, minor: 30 });
+  });
+
+  it("已結案的帳本不能改匯率", async () => {
+    await books.closeBook(await ctxOf(kr), c.aId);
+    await rejects(books.setHomeRate(await ctxOf(kr), "0.03"), "BOOK_READ_ONLY");
+  });
+});

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BarRow, MiniTrend } from "@/components/StatsBars";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
-import { homeApprox, moneyFmt } from "@/lib/money";
+import { formatMoney, moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { currencyBreakdown } from "@/server/services/rates";
 import { currencyOf, formatCurrency } from "@/lib/currency";
@@ -73,8 +73,11 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
               <Link href={drill()} className="block px-5 py-4 active:bg-stone-50">
                 <p className="text-sm text-stone-500">淨支出</p>
                 <p className="amount-lg mt-1 text-[2.4rem] text-stone-800" data-testid="stats-net-expense">{fmtMoney(net)}</p>
-                {homeApprox(net, ctx.book.homeRate) && (
-                  <p className="text-sm text-stone-500" data-testid="stats-net-home">約 {homeApprox(net, ctx.book.homeRate)}</p>
+                {/* 台幣參考值同樣是每一筆各自換算再加總，改匯率不會動到過去的統計 */}
+                {stats.homeNetExpense !== null && (
+                  <p className="text-sm text-stone-500" data-testid="stats-net-home">
+                    約 {formatMoney(stats.homeNetExpense, { symbol: "NT$" })}
+                  </p>
                 )}
                 <p className="mt-1 text-[11px] text-stone-400">
                   {stats.totals.refund > 0

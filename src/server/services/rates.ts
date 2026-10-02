@@ -7,7 +7,7 @@
  */
 import { prisma, type Tx } from "../db";
 import { assert } from "../domain/errors";
-import { assertRate, suggestedUnits, type LockedRate } from "../domain/exchange";
+import { assertRate, type LockedRate } from "../domain/exchange";
 import { CURRENCIES, isCurrencyCode } from "@/lib/currency";
 import { fromDateKey } from "@/lib/dates";
 import { assertCanWrite, type BookContext } from "./books";
@@ -40,8 +40,6 @@ export async function ratesForSettings(ctx: BookContext) {
   return CURRENCIES.filter((c) => c.code !== ctx.book.baseCurrency).map((c) => ({
     ...c,
     rate: set.get(c.code) ?? null,
-    /** 還沒設定時，輸入框預設帶的左邊單位（日圓 100、韓元 1000，其餘 1） */
-    suggestedUnits: suggestedUnits(c.code),
   }));
 }
 

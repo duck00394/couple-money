@@ -3,7 +3,7 @@ import { Prisma, type AccountType } from "@prisma/client";
 import { prisma, lockBook, type Tx } from "../db";
 import { assert, DomainError } from "../domain/errors";
 import { isCurrencyCode } from "@/lib/currency";
-import { assertRate } from "../domain/exchange";
+import { assertRate, parseRatePair } from "../domain/exchange";
 import { fromDateKey } from "@/lib/dates";
 
 export const MAX_COUPLE_MEMBERS = 2;
@@ -414,6 +414,37 @@ export async function createSecondaryBook(ctx: BookContext, userId: string, inpu
       data: { bookId: book.id, actorId: userId, action: "CREATE", entityType: "Book", entityId: book.id, after: { name, type: input.type } },
     });
     return book;
+  });
+}
+
+/**
+ * 表單那個單一欄位（「1 個外幣 = ? 台幣」）→ 要存進 Book 的兩個欄位。
+ *
+ * 參考匯率跟交易匯率用的是同一套存法與同一個解析函式，只是這邊的「本位幣」固定是台幣。
+ */
+export function homeRatePair(text: string) {
+  const pair = parseRatePair(text, HOME_CURRENCY);
+  return { homeRateUnits: pair?.foreignUnits ?? null, homeRateMinor: pair?.baseMinor ?? null };
+}
+
+/**
+ * 只改這本帳本的匯率（旅遊帳本首頁那張小卡用的）。
+ *
+ * 跟 updateBook() 分開，是因為首頁那張卡只有一個欄位 —— 走 updateBook() 就得把名稱、
+ * 起訖日一起送上來，漏一個就會被清掉。匯率是**這本帳本自己的欄位**，
+ * 改日本旅遊不會動到韓國旅遊（規格點 11）。
+ *
+ * 跟交易一樣的財務規則：這裡只寫 Book，不碰任何 Transaction，
+ * 所以已經記過的帳用的還是當時那個匯率。
+ */
+export async function setHomeRate(ctx: BookContext, text: string) {
+  assertCanWrite(ctx);
+  assert(ctx.book.baseCurrency !== HOME_CURRENCY, "RATE_BASE", "這本帳本本來就是台幣，不需要匯率");
+  const pair = parseRatePair(text, HOME_CURRENCY);
+  assert(pair, "RATE_VALUE", `請輸入 1 ${ctx.book.baseCurrency} 等於多少台幣（小數最多六位）`);
+  await prisma.book.update({
+    where: { id: ctx.book.id },
+    data: { homeRateUnits: pair!.foreignUnits, homeRateMinor: pair!.baseMinor },
   });
 }
 
