@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { cancelPreorderAction, deletePreorderAction, payPreorderAction, savePreorderAction } from "@/app/actions/preorders";
-import { formatMoney, parseAmount, toInputString } from "@/lib/money";
+import { parseAmount, toInputString } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { IconPicker } from "./EmojiPicker";
 import { Button, cx, DateInput, ErrorText, Field, Input, Select, inputClass } from "./ui";
@@ -48,6 +49,7 @@ export function PreorderForm({ values, members, categories, alreadyPaid = 0 }: {
   /** 這張單目前已經付了多少（編輯時才有）。用來提醒「改小之後會變成超付」，不阻擋。 */
   alreadyPaid?: number;
 }) {
+  const fmtMoney = useMoney();
   const [state, action, pending] = useActionState(savePreorderAction, undefined);
   const [item, setItem] = useState(values.itemAmount);
   const [ship, setShip] = useState(values.shipping);
@@ -177,12 +179,12 @@ export function PreorderForm({ values, members, categories, alreadyPaid = 0 }: {
         </Field>
         <Field label="運費（選填）"><Input name="shipping" inputMode="decimal" value={ship} onChange={(e) => setShip(e.target.value)} placeholder="150" /></Field>
       </div>
-      {total > 0 && <p className="-mt-1 text-xs text-stone-500">應付總額 <span className="tnum font-semibold text-stone-700">{formatMoney(total)}</span></p>}
+      {total > 0 && <p className="-mt-1 text-xs text-stone-500">應付總額 <span className="tnum font-semibold text-stone-700">{fmtMoney(total)}</span></p>}
       {/* 改小到低於已付金額是合理的（降價、少買一件），所以不阻擋，但一定要講清楚會變成超付 */}
       {total > 0 && alreadyPaid > total && (
         <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800" role="alert" data-testid="preorder-overpaid-warning">
-          修改後已付款金額（{formatMoney(alreadyPaid)}）會高於預購總額 {formatMoney(total)}，
-          多出 {formatMoney(alreadyPaid - total)}。若實際會收到退款，請另外到付款紀錄建立退款紀錄。
+          修改後已付款金額（{fmtMoney(alreadyPaid)}）會高於預購總額 {fmtMoney(total)}，
+          多出 {fmtMoney(alreadyPaid - total)}。若實際會收到退款，請另外到付款紀錄建立退款紀錄。
         </p>
       )}
 
@@ -245,12 +247,12 @@ export function PreorderForm({ values, members, categories, alreadyPaid = 0 }: {
                   ) : <div />}
                 </div>
                 <p className="mt-1.5 text-right text-xs text-stone-500">
-                  小計 <span className="tnum font-semibold text-stone-700">{formatMoney(lineTotal(it))}</span>
+                  小計 <span className="tnum font-semibold text-stone-700">{fmtMoney(lineTotal(it))}</span>
                 </p>
               </div>
             ))}
             <p className="text-right text-xs text-stone-500">
-              品項合計 <span className="tnum font-semibold text-stone-700">{formatMoney(itemsSum)}</span>
+              品項合計 <span className="tnum font-semibold text-stone-700">{fmtMoney(itemsSum)}</span>
             </p>
           </div>
         )}
@@ -325,7 +327,7 @@ export function PreorderForm({ values, members, categories, alreadyPaid = 0 }: {
               {dues.map((l) => (
                 <div key={l.userId} className="flex justify-between" data-due={l.userId}>
                   <span className="text-stone-600">{members.find((m) => m.userId === l.userId)?.nickname ?? "已離開的成員"}</span>
-                  <span className="tnum font-semibold text-stone-800">{formatMoney(l.amount)}</span>
+                  <span className="tnum font-semibold text-stone-800">{fmtMoney(l.amount)}</span>
                 </div>
               ))}
             </div>
@@ -364,6 +366,7 @@ export function PayPreorderForm({ id, remaining, today, accounts, categories, de
   /** 這張單每個人「應負擔」多少，用來提供「依預購分法」 */
   dues: Array<{ userId: string; due: number }>;
 }) {
+  const fmtMoney = useMoney();
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [categoryId, setCategoryId] = useState(defaultCategoryId ?? "");
@@ -415,7 +418,7 @@ export function PayPreorderForm({ id, remaining, today, accounts, categories, de
       </div>
       {remaining > 0 && (
         <button type="button" className="text-xs text-brand-600 underline underline-offset-2" onClick={() => setAmount(toInputString(remaining))}>
-          帶入待結全額 {formatMoney(remaining)}
+          帶入待結全額 {fmtMoney(remaining)}
         </button>
       )}
       <div className="grid grid-cols-2 gap-3">

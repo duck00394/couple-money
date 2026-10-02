@@ -2,19 +2,20 @@ import Link from "next/link";
 import { GenerateButton } from "@/components/RecurringActions";
 import { Card, Empty, PageHeader, SectionTitle, cx } from "@/components/ui";
 import { dateHeading } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listRecurring, type RecurringView } from "@/server/services/recurring";
 import { ArtTile } from "@/components/ArtIcon";
 
-function Row({ r, children }: { r: RecurringView; children?: React.ReactNode }) {
+function Row({ r, children, currency }: { r: RecurringView; children?: React.ReactNode; currency: string }) {
+  const fmtMoney = moneyFmt(currency);
   return (
     <Card className="p-0" data-testid="recurring-row">
       <Link href={`/recurring/${r.id}`} className="flex items-start gap-3 p-4 active:bg-stone-50">
         <ArtTile name={r.categoryIcon ?? "calendar-clock"} size={40} />
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">{r.name}</p>
-          <p className="text-xs text-stone-500">{formatMoney(r.amount)}・{r.scheduleText}</p>
+          <p className="text-xs text-stone-500">{fmtMoney(r.amount)}・{r.scheduleText}</p>
           <p className="text-xs text-stone-500">{r.accountName}・{r.payerName}付款・{r.splitText}</p>
           {!r.accountIsActive && <p className="text-xs text-red-600">付款帳戶已停用，請先修改</p>}
         </div>
@@ -51,7 +52,7 @@ export default async function RecurringPage() {
         ) : (
           <div className="space-y-3">
             {due.map((r) => (
-              <Row key={r.id} r={r}>
+              <Row key={r.id} r={r} currency={ctx.book.baseCurrency}>
                 <p className={cx("mb-1 text-xs font-semibold", r.state === "OVERDUE" ? "text-red-600" : "text-brand-600")} data-testid="recurring-due-label">
                   {r.state === "OVERDUE" ? "逾期" : "今天"}・應付 {r.nextDueDate}（{dateHeading(r.nextDueDate!)}）
                 </p>
@@ -66,7 +67,7 @@ export default async function RecurringPage() {
             <SectionTitle>即將到期</SectionTitle>
             <div className="space-y-3">
               {upcoming.map((r) => (
-                <Row key={r.id} r={r}>
+                <Row key={r.id} r={r} currency={ctx.book.baseCurrency}>
                   <p className="text-xs text-stone-500">下一次應付日：{r.nextDueDate}</p>
                 </Row>
               ))}
@@ -79,7 +80,7 @@ export default async function RecurringPage() {
             <SectionTitle>已停用／已結束</SectionTitle>
             <div className="space-y-3">
               {[...paused, ...ended].map((r) => (
-                <Row key={r.id} r={r}>
+                <Row key={r.id} r={r} currency={ctx.book.baseCurrency}>
                   <p className="text-xs text-stone-500">{r.status === "PAUSED" ? "已停用，不會產生新的待處理" : "已結束（超過結束日期）"}</p>
                 </Row>
               ))}

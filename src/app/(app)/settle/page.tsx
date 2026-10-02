@@ -3,7 +3,7 @@ import { DebtPicker } from "@/components/DebtPicker";
 import { DebtItemList } from "@/components/DebtItems";
 import { CancelSettlementButton, SettleForm } from "@/components/SettleForm";
 import { Card, Collapsible, PageHeader, SectionTitle } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { dateHeading, toDateKey } from "@/lib/dates";
 import { getAppContext } from "@/server/context";
 import { ACCOUNT_TYPE_ICON, getBalances, listAccounts, listSettlements } from "@/server/services/ledger";
@@ -12,6 +12,7 @@ import { ArtIcon } from "@/components/ArtIcon";
 
 export default async function SettlePage() {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const [balances, accounts, history] = await Promise.all([getBalances(ctx), listAccounts(ctx), listSettlements(ctx)]);
   const debt = balances.debts[0];
   // 逐筆明細一律看「欠錢的那一方」，所以兩個人打開這一頁看到的是同一份東西
@@ -31,7 +32,7 @@ export default async function SettlePage() {
         {/* 對方欠我：同一份逐筆明細，但只能看不能勾（錢是對方要付的） */}
         {debt && debtItems && !iOwe && (
           <div className="mt-3">
-            <DebtItemList items={debtItems.items} ownerName={name(debt.from)} />
+            <DebtItemList currency={ctx.book.baseCurrency} items={debtItems.items} ownerName={name(debt.from)} />
           </div>
         )}
 
@@ -83,8 +84,8 @@ export default async function SettlePage() {
                 <p className="truncate text-sm font-medium">{name(s.fromUserId)} 還給 {name(s.toUserId)}</p>
                 <p className="truncate text-xs text-stone-500">{dateHeading(toDateKey(s.createdAt))}{s.note ? ` · ${s.note}` : ""}</p>
               </div>
-              <span className="font-semibold">{formatMoney(s.amount)}</span>
-              {ctx.canWrite && <CancelSettlementButton id={s.id} label={`${name(s.fromUserId)} 還給 ${name(s.toUserId)} ${formatMoney(s.amount)}`} />}
+              <span className="font-semibold">{fmtMoney(s.amount)}</span>
+              {ctx.canWrite && <CancelSettlementButton id={s.id} label={`${name(s.fromUserId)} 還給 ${name(s.toUserId)} ${fmtMoney(s.amount)}`} />}
             </div>
           ))}
         </Card>

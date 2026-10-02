@@ -337,7 +337,7 @@ export async function payPreorder(
     "PREORDER_NOT_PAYABLE",
     view.state === "CANCELLED"
       ? "這張預購已經取消，不能再記錄付款。如果實際有退款，請到那筆付款走退款流程。"
-      : `這張預購已經付清（應付 ${formatMoney(view.money.total)}、已付 ${formatMoney(view.money.paid)}），不能再記錄付款。` +
+      : `這張預購已經付清（應付 ${formatMoney(view.money.total, { currency: ctx.book.baseCurrency })}、已付 ${formatMoney(view.money.paid, { currency: ctx.book.baseCurrency })}），不能再記錄付款。` +
         "如果總額有變，請先修改預購金額。",
   );
 

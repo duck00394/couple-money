@@ -5,7 +5,7 @@ import { DeleteRequestPanel } from "@/components/DeleteRequest";
 import { CancelFundEntryButton, CancelRewardDepositButton, FundEntryForm, FundForm, RewardDepositForm } from "@/components/FundForms";
 import { Avatar, Card, Collapsible, Empty, LinkButton, PageHeader, SectionTitle, TwoPartProgress } from "@/components/ui";
 import { dateHeading, dbDateToKey, toDateKey } from "@/lib/dates";
-import { formatMoney, toInputString } from "@/lib/money";
+import { moneyFmt, toInputString } from "@/lib/money";
 import { FUND_TX_LABEL, percentText, type FundTxType } from "@/server/domain/fund";
 import { getAppContext } from "@/server/context";
 import { accountOptions } from "@/server/fundFormData";
@@ -19,6 +19,7 @@ const ICON: Record<string, string> = { DEPOSIT: "piggy-bank", WITHDRAW: "undo", 
 export default async function FundDetailPage({ params }: PageProps<"/funds/[id]">) {
   const { id } = await params;
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const detail = await getFundDetail(ctx, id);
   if (!detail) notFound();
   const { fund, summary, entries, pending } = detail;
@@ -40,12 +41,12 @@ export default async function FundDetailPage({ params }: PageProps<"/funds/[id]"
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-xs text-stone-500">實際基金金額</p>
-              <p className="text-2xl font-bold" data-testid="fund-balance">{formatMoney(summary.balance)}</p>
+              <p className="text-2xl font-bold" data-testid="fund-balance">{fmtMoney(summary.balance)}</p>
               <p className="text-[11px] text-stone-400">帳戶裡真的有、已指定的錢</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-stone-500">尚未入金獎金</p>
-              <p className={`text-2xl font-bold ${pending.net < 0 ? "text-red-600" : "text-amber-600"}`} data-testid="fund-pending">{pending.net < 0 ? "-" : "+"}{formatMoney(Math.abs(pending.net))}</p>
+              <p className={`text-2xl font-bold ${pending.net < 0 ? "text-red-600" : "text-amber-600"}`} data-testid="fund-pending">{pending.net < 0 ? "-" : "+"}{fmtMoney(Math.abs(pending.net))}</p>
               <p className="text-[11px] text-stone-400">任務承諾，還不是現金</p>
             </div>
           </div>
@@ -54,7 +55,7 @@ export default async function FundDetailPage({ params }: PageProps<"/funds/[id]"
               <TwoPartProgress real={summary.balance} pending={pending.net} target={fund.targetAmount} className="mt-3 h-3" />
               <div className="mt-1 flex justify-between text-xs text-stone-500">
                 <span data-testid="fund-progress">實際 {percentText(summary.balance, fund.targetAmount)}{pending.net > 0 && `・含未入金 ${percentText(summary.balance + pending.net, fund.targetAmount)}`}</span>
-                <span>目標 {formatMoney(fund.targetAmount)}・還差 {formatMoney(detail.remaining ?? 0)}</span>
+                <span>目標 {fmtMoney(fund.targetAmount)}・還差 {fmtMoney(detail.remaining ?? 0)}</span>
               </div>
             </>
           ) : (
@@ -83,29 +84,29 @@ export default async function FundDetailPage({ params }: PageProps<"/funds/[id]"
                   if (!rw && !pn) return null;
                   return (
                     <div key={m.userId} className="flex justify-between">
-                      <span className="text-stone-600">{m.userId === ctx.me.userId ? "我" : m.nickname}：獎金 {formatMoney(rw)}{pn > 0 && `・懲罰 -${formatMoney(pn)}`}</span>
-                      <span className="font-semibold">{formatMoney(rw - pn)}</span>
+                      <span className="text-stone-600">{m.userId === ctx.me.userId ? "我" : m.nickname}：獎金 {fmtMoney(rw)}{pn > 0 && `・懲罰 -${fmtMoney(pn)}`}</span>
+                      <span className="font-semibold">{fmtMoney(rw - pn)}</span>
                     </div>
                   );
                 })}
                 {(pending.rewardsByUser.get("COUPLE") || pending.penaltiesByUser.get("COUPLE")) ? (
                   <div className="flex justify-between">
-                    <span className="text-stone-600">共同任務：獎金 {formatMoney(pending.rewardsByUser.get("COUPLE") ?? 0)}{(pending.penaltiesByUser.get("COUPLE") ?? 0) > 0 && `・懲罰 -${formatMoney(pending.penaltiesByUser.get("COUPLE") ?? 0)}`}</span>
+                    <span className="text-stone-600">共同任務：獎金 {fmtMoney(pending.rewardsByUser.get("COUPLE") ?? 0)}{(pending.penaltiesByUser.get("COUPLE") ?? 0) > 0 && `・懲罰 -${fmtMoney(pending.penaltiesByUser.get("COUPLE") ?? 0)}`}</span>
                   </div>
                 ) : null}
                 <div className="flex justify-between border-t border-line pt-1 font-semibold">
-                  <span>合計（獎金 {formatMoney(pending.rewards)} − 懲罰 {formatMoney(pending.penalties)}）</span>
-                  <span>{formatMoney(pending.net)}</span>
+                  <span>合計（獎金 {fmtMoney(pending.rewards)} − 懲罰 {fmtMoney(pending.penalties)}）</span>
+                  <span>{fmtMoney(pending.net)}</span>
                 </div>
               </div>
               <details className="text-xs text-stone-500">
                 <summary className="cursor-pointer">看明細（{detail.pendingRewards.length + detail.pendingPenalties.length} 筆）</summary>
                 <ul className="mt-2 space-y-1">
                   {detail.pendingRewards.map((r) => (
-                    <li key={r.id} className="flex justify-between"><span>{dateHeading(dbDateToKey(r.checkIn.date))} {nick(r.userId)}・{r.task.title}{r.kind === "MILESTONE" && "（里程碑）"}</span><span>+{formatMoney(r.amount)}</span></li>
+                    <li key={r.id} className="flex justify-between"><span>{dateHeading(dbDateToKey(r.checkIn.date))} {nick(r.userId)}・{r.task.title}{r.kind === "MILESTONE" && "（里程碑）"}</span><span>+{fmtMoney(r.amount)}</span></li>
                   ))}
                   {detail.pendingPenalties.map((p) => (
-                    <li key={p.id} className="flex justify-between"><span>{dateHeading(dbDateToKey(p.date))} {nick(p.userId)}・{p.task.title} 未完成</span><span>-{formatMoney(p.amount)}</span></li>
+                    <li key={p.id} className="flex justify-between"><span>{dateHeading(dbDateToKey(p.date))} {nick(p.userId)}・{p.task.title} 未完成</span><span>-{fmtMoney(p.amount)}</span></li>
                   ))}
                 </ul>
               </details>
@@ -124,14 +125,14 @@ export default async function FundDetailPage({ params }: PageProps<"/funds/[id]"
             <div key={m.userId} className="flex items-center gap-3" data-testid="fund-contribution">
               <Avatar name={m.nickname} color={m.avatarColor} size={32} src={m.avatarUrl} />
               <span className="flex-1 text-sm font-medium">{m.userId === ctx.me.userId ? "我" : m.nickname}</span>
-              <span className="font-semibold">{formatMoney(summary.contributions.get(m.userId) ?? 0)}</span>
+              <span className="font-semibold">{fmtMoney(summary.contributions.get(m.userId) ?? 0)}</span>
             </div>
           ))}
-          {(summary.contributions.get("JOINT") ?? 0) !== 0 && <p className="text-sm text-stone-600">共同投入 {formatMoney(summary.contributions.get("JOINT") ?? 0)}</p>}
+          {(summary.contributions.get("JOINT") ?? 0) !== 0 && <p className="text-sm text-stone-600">共同投入 {fmtMoney(summary.contributions.get("JOINT") ?? 0)}</p>}
           <div className="grid grid-cols-3 gap-2 border-t border-line pt-3 text-center text-xs text-stone-500">
-            <div>獎金入金<p className="text-base font-semibold text-stone-800">{formatMoney(summary.rewardDeposited)}</p></div>
-            <div>基金支出<p className="text-base font-semibold text-stone-800">{formatMoney(summary.spent)}</p></div>
-            <div>已取回<p className="text-base font-semibold text-stone-800">{formatMoney(summary.withdrawn)}</p></div>
+            <div>獎金入金<p className="text-base font-semibold text-stone-800">{fmtMoney(summary.rewardDeposited)}</p></div>
+            <div>基金支出<p className="text-base font-semibold text-stone-800">{fmtMoney(summary.spent)}</p></div>
+            <div>已取回<p className="text-base font-semibold text-stone-800">{fmtMoney(summary.withdrawn)}</p></div>
           </div>
         </Card>
 
@@ -142,7 +143,7 @@ export default async function FundDetailPage({ params }: PageProps<"/funds/[id]"
               {[...summary.byAccount].filter(([, v]) => v !== 0).map(([accId, v]) => (
                 <div key={accId} className="flex justify-between gap-3">
                   <span className="text-stone-600">{optionName(accId)}</span>
-                  <span className="font-semibold">{formatMoney(v)}</span>
+                  <span className="font-semibold">{fmtMoney(v)}</span>
                 </div>
               ))}
               <p className="pt-1 text-xs text-stone-400">基金只記「指定用途」，錢還在這些帳戶裡；帳戶頁可以看到每個帳戶還有多少可自由使用。</p>
@@ -207,9 +208,9 @@ export default async function FundDetailPage({ params }: PageProps<"/funds/[id]"
                   <p className="text-xs text-stone-500">{sub}</p>
                 </div>
                 <div className="text-right">
-                  <p className={`text-sm font-semibold ${e.amount > 0 ? "text-emerald-600" : "text-stone-800"}`}>{e.amount > 0 ? "+" : "-"}{formatMoney(Math.abs(e.amount))}</p>
-                  {ctx.canWrite && (e.type === "DEPOSIT" || e.type === "WITHDRAW") && <CancelFundEntryButton id={e.id} label={`${label} ${formatMoney(Math.abs(e.amount))}`} />}
-                  {ctx.canWrite && e.type === "REWARD_DEPOSIT" && <CancelRewardDepositButton id={e.id} label={formatMoney(Math.abs(e.amount))} />}
+                  <p className={`text-sm font-semibold ${e.amount > 0 ? "text-emerald-600" : "text-stone-800"}`}>{e.amount > 0 ? "+" : "-"}{fmtMoney(Math.abs(e.amount))}</p>
+                  {ctx.canWrite && (e.type === "DEPOSIT" || e.type === "WITHDRAW") && <CancelFundEntryButton id={e.id} label={`${label} ${fmtMoney(Math.abs(e.amount))}`} />}
+                  {ctx.canWrite && e.type === "REWARD_DEPOSIT" && <CancelRewardDepositButton id={e.id} label={fmtMoney(Math.abs(e.amount))} />}
                   {e.type === "EXPENSE" && e.transactionId && <Link href={`/transactions/${e.transactionId}`} className="text-xs text-stone-400 underline">查看</Link>}
                 </div>
               </div>

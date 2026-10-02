@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CloseBookButton, ReopenBookButton } from "@/components/BookForms2";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { homeApprox, moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listMyBooks } from "@/server/services/books";
 import { bookTotals } from "@/server/services/stats";
@@ -41,10 +41,18 @@ export default async function BooksPage({ searchParams }: PageProps<"/books">) {
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <p className="amount text-[15px] text-stone-800">{formatMoney(t?.expense ?? 0)}</p>
+            <p className="amount text-[15px] text-stone-800">{moneyFmt(b.baseCurrency)(t?.expense ?? 0)}</p>
+            {/* V16：外幣帳本在旁邊附一行「約 NT$」，回國之後還是知道花了多少台幣 */}
+            {homeApprox(t?.expense ?? 0, b.homeRate) && (
+              <p className="text-[11px] text-stone-500">約 {homeApprox(t?.expense ?? 0, b.homeRate)}</p>
+            )}
             <p className="text-[11px] text-stone-400">{t?.count ?? 0} 筆</p>
           </div>
         </div>
+
+        {b.isActive && (
+          <Link href="/books/edit" className="text-xs font-semibold text-brand-600">帳本設定・匯率・日期 →</Link>
+        )}
 
         {b.isClosed ? (
           <ReopenBookButton bookId={b.id} name={b.name} />
@@ -65,6 +73,12 @@ export default async function BooksPage({ searchParams }: PageProps<"/books">) {
         right={<Link href="/books/new" className="text-sm font-semibold text-brand-600">＋ 新增</Link>}
       />
       <div className="px-4">
+        {sp.deleted === "1" && (
+          <div className="mb-3 rounded-2xl border-[1.5px] border-stone-800 bg-stone-100 px-3.5 py-3">
+            <p className="text-sm font-bold text-stone-800">已永久刪除</p>
+            <p className="mt-1 text-xs text-stone-600">那本帳本與裡面的資料都不在了，目前帳本換回原帳本。</p>
+          </div>
+        )}
         {sp.closed === "1" && (
           <div className="mb-3 rounded-2xl border-[1.5px] border-brand-500 bg-brand-50 px-3.5 py-3">
             <p className="text-sm font-bold text-brand-700">已結案，資料都還在</p>

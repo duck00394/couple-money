@@ -4,7 +4,7 @@ import { TaskRow } from "@/components/TaskRow";
 import { TxRow } from "@/components/TxRow";
 import { SuggestBar } from "@/components/PurchaseForms";
 import { Badge, Card, Empty, SectionTitle, TwoPartProgress } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { homeApprox, moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listMyBooks } from "@/server/services/books";
 import { BookSwitcher } from "@/components/BookSwitcher";
@@ -32,6 +32,7 @@ import { ArtIcon, ArtImage, ArtTile } from "@/components/ArtIcon";
 export default async function DashboardPage({ searchParams }: PageProps<"/">) {
   const suggestSp = await searchParams;
   const { ctx, user } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const books = await listMyBooks(user.id);
   const currentBook = books.find((b) => b.id === ctx.book.id) ?? books[0];
   await applyMissedPenalties(ctx);
@@ -83,24 +84,31 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
       )}
       {/* ── 滿版場景：背景、招牌與角色都是可替換的 <img> 素材 ── */}
       <header className="-mx-4 -mt-5 mb-4">
-        <div className="relative h-[148px] overflow-hidden border-b-2 border-stone-800">
-          <ArtImage src="/assets/ramen-hero.png" alt="場景插畫" className="h-full w-full object-cover object-center" />
+        {/*
+          外層**不要** overflow-hidden —— 帳本選擇器的下拉選單是絕對定位的，
+          裁切會讓它只露出第一列，使用者就點不到「新增帳本」或別本帳本。
+          所以把裁切移到裡面那層：只負責把插圖與角色切齊，不碰選單。
+        */}
+        <div className="relative h-[148px] border-b-2 border-stone-800">
+          <div className="absolute inset-0 overflow-hidden">
+            <ArtImage src="/assets/ramen-hero.png" alt="場景插畫" className="h-full w-full object-cover object-center" />
+            <span className="absolute bottom-2 right-3 flex items-end">
+              <ArtImage src="/assets/chiikawa.png" alt="角色 A" className="art-round h-14 w-14" />
+              <ArtImage src="/assets/shisa.png" alt="角色 B" className="art-round -ml-3 h-14 w-14" />
+            </span>
+          </div>
           {/* V15：帳本選擇器。位置就是原本顯示帳本名稱的地方 —— 一眼看得到目前在哪本，
               但不佔畫面（規格點 7、26）。 */}
-          <span className="absolute left-3 top-3 max-w-[60%]">
+          <span className="absolute left-3 top-3 z-20 max-w-[60%]">
             <BookSwitcher books={books} current={currentBook} />
           </span>
           <Link
             href="/more"
             aria-label="更多"
-            className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border-2 border-stone-800 bg-white shadow-md"
+            className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full border-2 border-stone-800 bg-white shadow-md"
           >
             <ArtIcon name="menu" size={18} />
           </Link>
-          <span className="absolute bottom-2 right-3 flex items-end">
-            <ArtImage src="/assets/chiikawa.png" alt="角色 A" className="art-round h-14 w-14" />
-            <ArtImage src="/assets/shisa.png" alt="角色 B" className="art-round -ml-3 h-14 w-14" />
-          </span>
         </div>
         <div className="mt-3 flex items-end justify-between gap-3 px-4">
           <div className="min-w-0">
@@ -138,17 +146,17 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
               <div className="min-w-0">
                 <p className="text-xs text-stone-500">今天賺到</p>
                 <p className="amount mt-0.5 text-[1.9rem] text-brand-700" data-testid="today-rewards">
-                  +{formatMoney(todayReward)}
+                  +{fmtMoney(todayReward)}
                 </p>
               </div>
               <div className="shrink-0 text-right">
                 <p className="text-xs text-stone-500">我的獎勵餘額</p>
-                <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="reward-balance">{formatMoney(myReward.balance)}</p>
+                <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="reward-balance">{fmtMoney(myReward.balance)}</p>
               </div>
             </div>
             {ctx.partner && (
               <p className="mt-2 border-t border-line pt-2 text-xs text-stone-500">
-                兩個人今天合計 +{formatMoney(rewards.total)}
+                兩個人今天合計 +{fmtMoney(rewards.total)}
               </p>
             )}
           </Card>
@@ -212,7 +220,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
               <ArtTile name="package" size={36} />
               <span className="min-w-0 flex-1">
                 <span className="block">{preorders.count} 筆預購待結款</span>
-                <span className="block text-[11px] text-stone-400">共 {formatMoney(preorders.remaining)}・還沒付，不算這個月的支出</span>
+                <span className="block text-[11px] text-stone-400">共 {fmtMoney(preorders.remaining)}・還沒付，不算這個月的支出</span>
               </span>
               <span className="text-stone-300">›</span>
             </Link>
@@ -248,15 +256,15 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
       <Card className="px-5 py-4" data-testid="available-card">
         <p className="text-xs text-stone-500">扣掉基金與預購待結</p>
         <p className={`amount-lg mt-1 text-[2rem] ${available.free < 0 ? "text-red-600" : "text-stone-800"}`} data-testid="available-free">
-          {formatMoney(available.free)}
+          {fmtMoney(available.free)}
         </p>
         <div className="mt-2.5 space-y-0.5 border-t border-line pt-2.5 text-xs text-stone-500">
-          <div className="flex justify-between"><span>帳戶可用</span><span className="tnum">{formatMoney(available.accounts)}</span></div>
+          <div className="flex justify-between"><span>帳戶可用</span><span className="tnum">{fmtMoney(available.accounts)}</span></div>
           {available.earmarked > 0 && (
-            <div className="flex justify-between"><span>− 已指定給基金</span><span className="tnum">{formatMoney(available.earmarked)}</span></div>
+            <div className="flex justify-between"><span>− 已指定給基金</span><span className="tnum">{fmtMoney(available.earmarked)}</span></div>
           )}
           {available.preorder > 0 && (
-            <div className="flex justify-between"><span>− 預購待結</span><span className="tnum">{formatMoney(available.preorder)}</span></div>
+            <div className="flex justify-between"><span>− 預購待結</span><span className="tnum">{fmtMoney(available.preorder)}</span></div>
           )}
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-stone-400">不含信用卡欠款，也沒有扣預算（預算只是提醒，不是已經花掉的錢）。</p>
@@ -264,7 +272,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
 
       {/* ── 6. 基金進度（摘要與入口，完整清單在基金頁） ── */}
       <SectionTitle right={<Link href="/funds" className="text-sm text-brand-600">全部基金</Link>}>
-        基金・{formatMoney(fundTotal)}
+        基金・{fmtMoney(fundTotal)}
       </SectionTitle>
       <Card quiet className="divide-y divide-line p-0" data-testid="home-funds">
         {topFunds.length === 0 ? (
@@ -279,10 +287,10 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[15px] font-medium text-stone-800">{f.name}</p>
                   <p className="truncate text-xs text-stone-500">
-                    {f.targetAmount ? `目標 ${formatMoney(f.targetAmount)}・還差 ${formatMoney(f.remaining ?? 0)}` : "未設定目標金額"}
+                    {f.targetAmount ? `目標 ${fmtMoney(f.targetAmount)}・還差 ${fmtMoney(f.remaining ?? 0)}` : "未設定目標金額"}
                   </p>
                 </div>
-                <span className="amount shrink-0 text-stone-800">{formatMoney(f.balance)}</span>
+                <span className="amount shrink-0 text-stone-800">{fmtMoney(f.balance)}</span>
               </div>
               {f.targetAmount ? <TwoPartProgress real={f.balance} pending={f.pending} target={f.targetAmount} className="mt-2" /> : null}
             </Link>
@@ -298,16 +306,23 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
           <span className="text-xs text-stone-400">看統計 ›</span>
         </div>
         <p className="amount-lg mt-1.5 text-[2.6rem] text-stone-800" data-testid="month-expense">
-          {formatMoney(summary.expense)}
+          {fmtMoney(summary.expense)}
         </p>
+        {/* V16：外幣帳本在旁邊附一行「約 NT$」—— 出國記帳時腦子裡是日圓，
+            但回國之後想知道的是台幣。只是參考值，不參與任何計算。 */}
+        {homeApprox(summary.expense, ctx.book.homeRate) && (
+          <p className="mt-0.5 text-sm text-stone-500" data-testid="month-expense-home">
+            約 {homeApprox(summary.expense, ctx.book.homeRate)}
+          </p>
+        )}
         <div className="mt-5 grid grid-cols-2 gap-3 border-t border-line pt-4 text-sm">
           <div>
             <p className="text-xs text-stone-500">我負擔</p>
-            <p className="amount mt-1 text-[17px]">{formatMoney(summary.myShare)}</p>
+            <p className="amount mt-1 text-[17px]">{fmtMoney(summary.myShare)}</p>
           </div>
           <div>
             <p className="text-xs text-stone-500">收入</p>
-            <p className="amount mt-1 text-[17px] text-brand-700">{formatMoney(summary.income)}</p>
+            <p className="amount mt-1 text-[17px] text-brand-700">{fmtMoney(summary.income)}</p>
           </div>
         </div>
       </Link>

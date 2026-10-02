@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArtIcon } from "./ArtIcon";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { formatCurrency } from "@/lib/currency";
 import { allocateForeign, rateLabel } from "@/server/domain/exchange";
 import { dateHeading, hasTimeOfDay, toDateKey, toTimeKey } from "@/lib/dates";
@@ -14,6 +14,7 @@ const who = (ctx: BookContext, id: string | null | undefined) =>
 
 /** 紀錄的詳細資料（所有類型共用）。 */
 export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContext; related?: { id: string; title: string | null; amount: number } | null }) {
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const label = tx.type === "TRANSFER" && tx.sourceType === "REWARD_DEPOSIT" ? "任務獎金入金（轉帳）" : TX_TYPE_LABEL[tx.type as TxType];
   const countsAsMoney = tx.type === "EXPENSE" || tx.type === "INCOME" || tx.type === "REFUND";
   const fund = tx.fundEntry && !tx.fundEntry.deletedAt ? tx.fundEntry : null;
@@ -44,7 +45,7 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
             <p className="text-2xl font-bold" data-testid="tx-foreign">
               {formatCurrency(tx.foreignAmount, tx.currency)}
             </p>
-            <p className="text-sm text-stone-600">≈ {formatMoney(tx.amount)}</p>
+            <p className="text-sm text-stone-600">≈ {fmtMoney(tx.amount)}</p>
             {tx.rateForeignUnits != null && tx.rateBaseMinor != null && (
               <p className="mt-0.5 text-[11px] text-stone-400" data-testid="tx-rate">
                 {rateLabel(
@@ -55,7 +56,7 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
             )}
           </div>
         ) : (
-          <p className="shrink-0 text-2xl font-bold">{formatMoney(tx.amount)}</p>
+          <p className="shrink-0 text-2xl font-bold">{fmtMoney(tx.amount)}</p>
         )}
       </div>
       {!countsAsMoney && (
@@ -74,7 +75,7 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
           {tx.payments.map((p) => (
             <li key={p.id} className="flex justify-between">
               <span>{who(ctx, p.account.ownerId)}・{p.account.name}</span>
-              <span className={p.amount < 0 ? "text-emerald-600" : ""}>{p.amount < 0 ? "+" : "-"}{formatMoney(Math.abs(p.amount))}</span>
+              <span className={p.amount < 0 ? "text-emerald-600" : ""}>{p.amount < 0 ? "+" : "-"}{fmtMoney(Math.abs(p.amount))}</span>
             </li>
           ))}
         </ul>
@@ -94,7 +95,7 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
                     一定剛好等於原幣總額，不會因為四捨五入湊不回 ¥10,000。
                   */}
                   {foreignShares && <span className="mr-1.5 text-stone-500">{formatCurrency(foreignShares[i], tx.currency!)}</span>}
-                  {formatMoney(Math.abs(s.amount))}
+                  {fmtMoney(Math.abs(s.amount))}
                 </span>
               </li>
             ))}
@@ -113,7 +114,7 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
       {fund && (
         <p>
           <span className="text-stone-500">基金：</span>
-          <Link href={`/funds/${fund.fundId}`} className="text-brand-600 underline">{fund.fund.name}</Link>（基金實際金額 −{formatMoney(tx.amount)}）
+          <Link href={`/funds/${fund.fundId}`} className="text-brand-600 underline">{fund.fund.name}</Link>（基金實際金額 −{fmtMoney(tx.amount)}）
         </p>
       )}
       {tx.recurring && (
@@ -132,7 +133,7 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
       {related && (
         <p>
           <span className="text-stone-500">原始消費：</span>
-          <Link href={`/transactions/${related.id}`} className="text-brand-600 underline">{related.title || "消費"}（{formatMoney(related.amount)}）</Link>
+          <Link href={`/transactions/${related.id}`} className="text-brand-600 underline">{related.title || "消費"}（{fmtMoney(related.amount)}）</Link>
         </p>
       )}
       {tx.type === "SETTLEMENT" && <p><Link href="/settle" className="text-brand-600 underline">到結算頁查看或取消</Link></p>}

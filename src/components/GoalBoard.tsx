@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArtIcon, ArtImage } from "./ArtIcon";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 
 const TILT = ["-rotate-[2deg]", "rotate-[1.6deg]", "rotate-[1.1deg]", "-rotate-[1.5deg]"];
 
@@ -15,7 +15,8 @@ export interface BoardGoal {
 }
 
 /** 目標佈告欄：跟任務用同一套木板 + 手撕紙條。 */
-export function GoalBoard({ goals, mascot, empty }: { goals: BoardGoal[]; mascot?: string; empty: string }) {
+export function GoalBoard({ currency, goals, mascot, empty }: { currency: string; goals: BoardGoal[]; mascot?: string; empty: string }) {
+  const fmtMoney = moneyFmt(currency);
   return (
     <div className="corkboard relative mt-4 px-2.5 pb-4 pt-7" data-testid="goal-board">
       <span className="absolute left-1/2 top-[-11px] z-10 -translate-x-1/2 whitespace-nowrap rounded-lg border-2 border-stone-800 bg-kraft px-3 py-0.5 text-[11.5px] font-semibold shadow-md">
@@ -30,7 +31,7 @@ export function GoalBoard({ goals, mascot, empty }: { goals: BoardGoal[]; mascot
               <ArtIcon name={g.emoji} size={20} className="mx-auto mb-1" />
               <p className="truncate text-[13px] font-semibold leading-tight text-stone-800">{g.name}</p>
               <p className="tnum mt-0.5 truncate text-[9.5px] text-stone-500">
-                {formatMoney(g.current)} / {formatMoney(g.targetAmount)}
+                {fmtMoney(g.current)} / {fmtMoney(g.targetAmount)}
               </p>
               <span className="stamp mt-1.5 text-[10px]">
                 {g.status === "ACHIEVED" ? "達成" : `${Math.round(g.progress * 100)}%`}

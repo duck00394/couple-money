@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { cancelFundEntryAction, cancelRewardDepositAction, depositRewardsAction, fundEntryAction, saveFundAction } from "@/app/actions/funds";
-import { formatMoney, parseAmount } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { IconPicker } from "./EmojiPicker";
 import { Button, cx, ErrorText, Field, Input, Select, inputClass } from "./ui";
@@ -86,6 +87,7 @@ export function FundEntryForm({ fundId, balance, today, people, accounts }: {
   people: Array<{ id: string; label: string }>;
   accounts: AccountOption[];
 }) {
+  const fmtMoney = useMoney();
   const [type, setType] = useState<"DEPOSIT" | "WITHDRAW">("DEPOSIT");
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [amount, setAmount] = useState("");
@@ -119,13 +121,13 @@ export function FundEntryForm({ fundId, balance, today, people, accounts }: {
       </div>
       <Field
         label={type === "DEPOSIT" ? "錢在哪個帳戶（必填）" : "從哪個帳戶的額度取回"}
-        hint={selected ? (type === "DEPOSIT" ? `可自由使用 ${formatMoney(selected.free)}` : `這個帳戶指定給本基金 ${formatMoney(selected.allocated)}`) : type === "WITHDRAW" ? `基金目前 ${formatMoney(balance)}，沒有可取回的帳戶額度` : undefined}
+        hint={selected ? (type === "DEPOSIT" ? `可自由使用 ${fmtMoney(selected.free)}` : `這個帳戶指定給本基金 ${fmtMoney(selected.allocated)}`) : type === "WITHDRAW" ? `基金目前 ${fmtMoney(balance)}，沒有可取回的帳戶額度` : undefined}
       >
         <Select name="accountId" aria-label="存放帳戶" value={selected?.id ?? ""} onChange={(e) => setAccountId(e.target.value)} required>
           {options.length === 0 && <option value="">沒有可用的帳戶</option>}
           {options.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name}（{type === "DEPOSIT" ? `可用 ${formatMoney(a.free)}` : `額度 ${formatMoney(a.allocated)}`}）
+              {a.name}（{type === "DEPOSIT" ? `可用 ${fmtMoney(a.free)}` : `額度 ${fmtMoney(a.allocated)}`}）
             </option>
           ))}
         </Select>
@@ -142,7 +144,7 @@ export function FundEntryForm({ fundId, balance, today, people, accounts }: {
       </div>
       {selected && parsed > 0 && parsed > limit && (
         <p className="text-xs text-orange-600" data-testid="fund-limit-hint">
-          {type === "DEPOSIT" ? `超過「${selected.name}」可自由使用的 ${formatMoney(Math.max(0, limit))}` : `超過這個帳戶的額度 ${formatMoney(limit)}`}
+          {type === "DEPOSIT" ? `超過「${selected.name}」可自由使用的 ${fmtMoney(Math.max(0, limit))}` : `超過這個帳戶的額度 ${fmtMoney(limit)}`}
         </p>
       )}
       <div className="grid grid-cols-2 gap-3">
@@ -165,6 +167,7 @@ export function RewardDepositForm({ fundId, net, today, targets, sources }: {
   targets: AccountOption[];
   sources: AccountOption[];
 }) {
+  const fmtMoney = useMoney();
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [target, setTarget] = useState(targets.find((t) => t.name.includes("共同"))?.id ?? targets[0]?.id ?? "");
   const [source, setSource] = useState("");
@@ -185,15 +188,15 @@ export function RewardDepositForm({ fundId, net, today, targets, sources }: {
           {targets.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </Select>
       </Field>
-      <Field label="錢從哪裡來" hint={s ? `從「${s.name}」轉 ${formatMoney(net)} 到「${t?.name}」，會記一筆帳戶間轉帳` : `錢已經在「${t?.name ?? ""}」裡（可自由使用 ${formatMoney(t?.free ?? 0)}），只指定用途`}>
+      <Field label="錢從哪裡來" hint={s ? `從「${s.name}」轉 ${fmtMoney(net)} 到「${t?.name}」，會記一筆帳戶間轉帳` : `錢已經在「${t?.name ?? ""}」裡（可自由使用 ${fmtMoney(t?.free ?? 0)}），只指定用途`}>
         <Select name="sourceAccountId" aria-label="入金來源" value={source} onChange={(e) => setSource(e.target.value)}>
           <option value="">錢已經在入金帳戶裡</option>
-          {sources.filter((a) => a.id !== target).map((a) => <option key={a.id} value={a.id}>從 {a.name} 轉入（可用 {formatMoney(a.free)}）</option>)}
+          {sources.filter((a) => a.id !== target).map((a) => <option key={a.id} value={a.id}>從 {a.name} 轉入（可用 {fmtMoney(a.free)}）</option>)}
         </Select>
       </Field>
       <ErrorText>{state?.error}</ErrorText>
       {state?.ok && <p className="text-sm text-emerald-600" role="status">{state.ok}</p>}
-      <Button className="w-full" disabled={pending || net <= 0}>{pending ? "入金中…" : `入金 ${formatMoney(Math.max(0, net))}`}</Button>
+      <Button className="w-full" disabled={pending || net <= 0}>{pending ? "入金中…" : `入金 ${fmtMoney(Math.max(0, net))}`}</Button>
     </ActionForm>
   );
 }

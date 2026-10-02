@@ -37,7 +37,7 @@ const member = (u: { id: string; nickname: string; avatarColor: string }, role: 
 export function demoCtx(state: DemoState): BookContext {
   const [a, b] = state.users;
   return {
-    book: { id: "demo_book", name: "我們的試用帳本", coverEmoji: "🍊", baseCurrency: "TWD", status: "ACTIVE", type: "MAIN", closedAt: null },
+    book: { id: "demo_book", name: "我們的試用帳本", coverEmoji: "🍊", baseCurrency: "TWD", status: "ACTIVE", type: "MAIN", closedAt: null, homeRate: null },
     me: member(a, "OWNER"),
     members: [member(a, "OWNER"), member(b, "PARTNER")],
     partner: member(b, "PARTNER"),

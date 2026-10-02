@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { toIconKey } from "@/lib/icons";
 import { ArtTile } from "./ArtIcon";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { formatCurrency } from "@/lib/currency";
 import type { BookContext } from "@/server/services/books";
 import type { TxType } from "@/server/domain/ledger";
@@ -64,12 +64,13 @@ function Row({ href, icon, tone = "neutral", title, sub, amount, amountClass = "
 
 /** 記帳列表的一列。所有類型都能點進詳細頁（支出／收入可以編輯）。 */
 export function TxRow({ tx, ctx, base = "" }: { tx: TxRowItem; ctx: BookContext; base?: string }) {
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const tags = tx.tags.map((t) => t.tag.name);
   const href = `${base}/transactions/${tx.id}`;
 
   if (tx.type === "SETTLEMENT" && tx.settlement) {
     const s = tx.settlement;
-    return <Row href={href} icon="settle" tone="income" title={`${name(ctx, s.fromUserId)} 還給 ${name(ctx, s.toUserId)}`} sub={`結算${tx.note ? ` · ${tx.note}` : ""}`} amount={formatMoney(tx.amount)} amountClass="rounded-md bg-brand-100 px-1.5 py-0.5 text-brand-700" />;
+    return <Row href={href} icon="settle" tone="income" title={`${name(ctx, s.fromUserId)} 還給 ${name(ctx, s.toUserId)}`} sub={`結算${tx.note ? ` · ${tx.note}` : ""}`} amount={fmtMoney(tx.amount)} amountClass="rounded-md bg-brand-100 px-1.5 py-0.5 text-brand-700" />;
   }
   if (tx.type === "TRANSFER") {
     const out = tx.payments.find((p) => p.amount > 0);
@@ -82,7 +83,7 @@ export function TxRow({ tx, ctx, base = "" }: { tx: TxRowItem; ctx: BookContext;
         tone="info"
         title={reward ? tx.title ?? "任務獎金入金" : tx.title || "帳戶間轉帳"}
         sub={`${out ? `${name(ctx, out.account.ownerId)}・${out.account.name}` : ""} → ${into ? `${name(ctx, into.account.ownerId)}・${into.account.name}` : ""}・不算收支`}
-        amount={formatMoney(tx.amount)}
+        amount={fmtMoney(tx.amount)}
         amountClass="text-sky-700"
         tags={tags}
       />
@@ -98,7 +99,7 @@ export function TxRow({ tx, ctx, base = "" }: { tx: TxRowItem; ctx: BookContext;
         icon="adjust"
         title={tx.type === "OPENING_BALANCE" ? "期初餘額" : "餘額調整"}
         sub={`${name(ctx, p?.account.ownerId)}・${p?.account.name ?? ""}・不算收支`}
-        amount={`${delta < 0 ? "-" : "+"}${formatMoney(Math.abs(delta))}`}
+        amount={`${delta < 0 ? "-" : "+"}${fmtMoney(Math.abs(delta))}`}
         amountClass="text-stone-500"
       />
     );
@@ -121,8 +122,8 @@ export function TxRow({ tx, ctx, base = "" }: { tx: TxRowItem; ctx: BookContext;
       icon={isRefund ? "refund" : toIconKey(tx.category?.icon ?? (isIncome ? "banknote" : "tag"))}
       tone={isIncome || isRefund ? "income" : "neutral"}
       title={title}
-      sub={`${foreign}${payer}${!isIncome && tx.splits.length > 0 ? ` · 我${isRefund ? "少負擔" : "負擔"} ${formatMoney(Math.abs(mine))}` : ""}${fund}${recurring}`}
-      amount={`${isIncome || isRefund ? "+" : "-"}${formatMoney(tx.amount)}`}
+      sub={`${foreign}${payer}${!isIncome && tx.splits.length > 0 ? ` · 我${isRefund ? "少負擔" : "負擔"} ${fmtMoney(Math.abs(mine))}` : ""}${fund}${recurring}`}
+      amount={`${isIncome || isRefund ? "+" : "-"}${fmtMoney(tx.amount)}`}
       amountClass={isIncome || isRefund ? "rounded-md bg-brand-100 px-1.5 py-0.5 text-brand-700" : "text-stone-800"}
       tags={tags}
     />

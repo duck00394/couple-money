@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { withdrawRewardsAction } from "@/app/actions/rewards";
-import { formatMoney } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { ArtIcon } from "./ArtIcon";
 import { Button, Card, ErrorText, Field, Select } from "./ui";
@@ -26,6 +26,7 @@ export function RewardBox({
   requestId: string;
   canWrite: boolean;
 }) {
+  const fmtMoney = useMoney();
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(async (prev: Awaited<ReturnType<typeof withdrawRewardsAction>>, fd: FormData) => {
     const r = await withdrawRewardsAction(prev, fd);
@@ -41,16 +42,16 @@ export function RewardBox({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-stone-800">我的獎勵</p>
-          <p className="text-[11px] text-stone-500">累計獲得 {formatMoney(earned)}・已提列 {formatMoney(settled)}</p>
+          <p className="text-[11px] text-stone-500">累計獲得 {fmtMoney(earned)}・已提列 {fmtMoney(settled)}</p>
         </div>
-        <p className="amount text-xl text-stone-800" data-testid="reward-balance">{formatMoney(balance)}</p>
+        <p className="amount text-xl text-stone-800" data-testid="reward-balance">{fmtMoney(balance)}</p>
       </div>
 
       {state?.ok && <p className="text-sm text-emerald-700" role="status">{state.ok}</p>}
 
       {canWrite && balance > 0 && !open && (
         <Button variant="secondary" className="w-full" onClick={() => setOpen(true)} data-testid="reward-withdraw-open">
-          提列 {formatMoney(balance)} 到帳戶
+          提列 {fmtMoney(balance)} 到帳戶
         </Button>
       )}
 

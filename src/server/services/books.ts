@@ -3,6 +3,7 @@ import { Prisma, type AccountType } from "@prisma/client";
 import { prisma, lockBook, type Tx } from "../db";
 import { assert, DomainError } from "../domain/errors";
 import { isCurrencyCode } from "@/lib/currency";
+import { assertRate } from "../domain/exchange";
 import { fromDateKey } from "@/lib/dates";
 
 export const MAX_COUPLE_MEMBERS = 2;
@@ -37,6 +38,8 @@ export interface BookContext {
     /** V15：MAIN 是原帳本（不能結案）；TRIP / CUSTOM 可以結案 */
     type: "MAIN" | "TRIP" | "CUSTOM";
     closedAt: Date | null;
+    /** V16：換回台幣的參考匯率（只影響顯示）。本位幣就是 TWD 時是 null。 */
+    homeRate: { units: number; minor: number } | null;
   };
   me: BookMemberView;
   members: BookMemberView[];
@@ -80,6 +83,10 @@ export async function loadContext(userId: string, bookId: string): Promise<BookC
       status: book.status,
       type: book.type as "MAIN" | "TRIP" | "CUSTOM",
       closedAt: book.closedAt,
+      homeRate:
+        book.baseCurrency !== HOME_CURRENCY && book.homeRateUnits && book.homeRateMinor
+          ? { units: book.homeRateUnits, minor: book.homeRateMinor }
+          : null,
     },
     me,
     members,
@@ -255,7 +262,12 @@ export interface BookListItem {
   isActive: boolean;
   /** 使用中（ACTIVE）還是歷史紀錄（已結案） */
   isClosed: boolean;
+  note: string | null;
+  homeRate: { units: number; minor: number } | null;
 }
+
+/** 「家裡的錢」。旁邊那行 ≈ 一律換算成這個幣別。 */
+export const HOME_CURRENCY = "TWD";
 
 const dayKey = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
@@ -283,6 +295,11 @@ export async function listMyBooks(userId: string): Promise<BookListItem[]> {
       closedAt: book.closedAt,
       isActive: book.id === user.activeBookId,
       isClosed: book.status === "CLOSED",
+      note: book.note,
+      homeRate:
+        book.baseCurrency !== HOME_CURRENCY && book.homeRateUnits && book.homeRateMinor
+          ? { units: book.homeRateUnits, minor: book.homeRateMinor }
+          : null,
     }))
     .sort((a, b) => {
       if (a.isClosed !== b.isClosed) return a.isClosed ? 1 : -1;
@@ -323,6 +340,9 @@ export interface NewBookInput {
   startOn?: string | null;
   endOn?: string | null;
   note?: string | null;
+  /** 本位幣不是台幣時的參考匯率：homeRateUnits 個外幣 = homeRateMinor 台幣最小單位 */
+  homeRateUnits?: number | null;
+  homeRateMinor?: number | null;
 }
 
 /**
@@ -357,6 +377,7 @@ export async function createSecondaryBook(ctx: BookContext, userId: string, inpu
         startOn: start,
         endOn: end,
         note,
+        ...homeRateData(currency, input),
         createdById: userId,
       },
     });
@@ -394,6 +415,103 @@ export async function createSecondaryBook(ctx: BookContext, userId: string, inpu
     });
     return book;
   });
+}
+
+/**
+ * 把表單填的「換回台幣」匯率整理成要寫進 Book 的欄位。
+ * 本位幣就是台幣時一律清成 null —— 不要留下用不到又會誤導的數字。
+ */
+function homeRateData(currency: string, input: { homeRateUnits?: number | null; homeRateMinor?: number | null }) {
+  if (currency === HOME_CURRENCY) return { homeRateUnits: null, homeRateMinor: null };
+  const units = input.homeRateUnits ?? null;
+  const minor = input.homeRateMinor ?? null;
+  if (!units || !minor) return { homeRateUnits: null, homeRateMinor: null };
+  assertRate({ foreignUnits: units, baseMinor: minor });
+  return { homeRateUnits: units, homeRateMinor: minor };
+}
+
+/** 編輯帳本：名稱、日期、備註、換回台幣的匯率。已結案的不能改。 */
+export async function updateBook(
+  ctx: BookContext,
+  input: { name: string; startOn?: string | null; endOn?: string | null; note?: string | null; homeRateUnits?: number | null; homeRateMinor?: number | null },
+) {
+  assertCanWrite(ctx);
+  const name = input.name.trim();
+  assert(name.length >= 1 && name.length <= 30, "BOOK_NAME", "帳本名稱需為 1～30 個字");
+  const start = input.startOn ? fromDateKey(input.startOn) : null;
+  const end = input.endOn ? fromDateKey(input.endOn) : null;
+  assert(!start || !end || start <= end, "BOOK_DATE", "結束日期不能早於開始日期");
+  await prisma.book.update({
+    where: { id: ctx.book.id },
+    data: {
+      name,
+      startOn: start,
+      endOn: end,
+      note: (input.note ?? "").trim().slice(0, 200) || null,
+      ...homeRateData(ctx.book.baseCurrency, input),
+    },
+  });
+}
+
+/**
+ * 永久刪除一本帳本，連同裡面的全部資料。
+ *
+ * **救不回來。** 所以呼叫端一定要先讓使用者把帳本名稱一字不差打進來（confirmName）。
+ * 原帳本永遠不能刪 —— 它是這對情侶的本體。
+ */
+export async function deleteBook(userId: string, bookId: string, confirmName: string) {
+  const member = await prisma.bookMember.findFirst({ where: { userId, bookId, status: "ACTIVE" } });
+  assert(member, "BOOK_FORBIDDEN", "你不是這個帳本的成員");
+  const book = await prisma.book.findFirstOrThrow({ where: { id: bookId } });
+  assert(book.type !== "MAIN", "BOOK_MAIN_DELETE", "原帳本不能刪除");
+  assert(confirmName.trim() === book.name, "BOOK_CONFIRM_NAME", "帳本名稱不符，請一字不差地輸入");
+
+  await prisma.$transaction(async (tx) => {
+    // 依外鍵相依順序一路刪乾淨。Prisma 的 onDelete: Cascade 只有部分關聯設了，
+    // 所以這裡明寫順序，確保不會留下孤兒列。
+    const txIds = (await tx.transaction.findMany({ where: { bookId }, select: { id: true } })).map((t) => t.id);
+    await tx.transactionTag.deleteMany({ where: { transactionId: { in: txIds } } });
+    await tx.transactionPayment.deleteMany({ where: { transactionId: { in: txIds } } });
+    await tx.transactionSplit.deleteMany({ where: { transactionId: { in: txIds } } });
+    await tx.purchaseEntry.deleteMany({ where: { bookId } });
+    await tx.purchaseKeyword.deleteMany({ where: { bookId } });
+    await tx.purchaseTag.deleteMany({ where: { group: { bookId } } });
+    await tx.purchaseCategory.deleteMany({ where: { group: { bookId } } });
+    await tx.purchaseGroup.deleteMany({ where: { bookId } });
+    await tx.settlement.deleteMany({ where: { bookId } });
+    await tx.fundTransaction.deleteMany({ where: { bookId } });
+    await tx.goal.deleteMany({ where: { bookId } });
+    await tx.fund.deleteMany({ where: { bookId } });
+    await tx.checkIn.deleteMany({ where: { bookId } });
+    await tx.taskReward.deleteMany({ where: { bookId } });
+    await tx.taskPenalty.deleteMany({ where: { bookId } });
+    await tx.task.deleteMany({ where: { bookId } });
+    await tx.budget.deleteMany({ where: { bookId } });
+    await tx.recurringExpense.deleteMany({ where: { bookId } });
+    await tx.preorderItem.deleteMany({ where: { preorder: { bookId } } });
+    await tx.preorder.deleteMany({ where: { bookId } });
+    await tx.attachment.deleteMany({ where: { bookId } });
+    await tx.deleteRequest.deleteMany({ where: { bookId } });
+    await tx.userAchievement.deleteMany({ where: { bookId } });
+    await tx.transaction.deleteMany({ where: { bookId } });
+    await tx.account.deleteMany({ where: { bookId } });
+    await tx.category.deleteMany({ where: { bookId } });
+    await tx.tag.deleteMany({ where: { bookId } });
+    await tx.exchangeRate.deleteMany({ where: { bookId } });
+    await tx.invite.deleteMany({ where: { bookId } });
+    await tx.bookMember.deleteMany({ where: { bookId } });
+    await tx.auditLog.deleteMany({ where: { bookId } });
+    await tx.couple.deleteMany({ where: { bookId } });
+    await tx.book.delete({ where: { id: bookId } });
+  });
+
+  // 目前帳本如果就是被刪掉的那本，切回原帳本
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  if (user.activeBookId === bookId) {
+    const main = await mainBookId(userId);
+    if (main) await switchBook(userId, main);
+  }
+  return book.name;
 }
 
 /**

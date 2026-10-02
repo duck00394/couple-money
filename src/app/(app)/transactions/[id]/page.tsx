@@ -9,7 +9,7 @@ import { Card, Collapsible, PageHeader } from "@/components/ui";
 import { ArtIcon } from "@/components/ArtIcon";
 import { prisma } from "@/server/db";
 import { toDateKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import type { SplitRule } from "@/server/domain/split";
 import { getTransaction } from "@/server/services/ledger";
@@ -21,6 +21,7 @@ import { loadTxFormOptions } from "@/server/txFormData";
 export default async function EditTransactionPage({ params }: PageProps<"/transactions/[id]">) {
   const { id } = await params;
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const tx = await getTransaction(ctx, id);
   if (!tx) notFound();
   const related = tx.relatedId
@@ -46,7 +47,7 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
           <Card className="mt-3 space-y-1.5 text-sm" data-testid="reward-withdrawal-note">
             <p className="font-semibold text-stone-800">這是一筆任務獎勵提列</p>
             <p className="text-stone-600">
-              金額是你當時「我的獎勵」餘額的總和，所以不能單獨改。作廢的話，這 {formatMoney(tx.amount)} 會從帳戶退回去，
+              金額是你當時「我的獎勵」餘額的總和，所以不能單獨改。作廢的話，這 {fmtMoney(tx.amount)} 會從帳戶退回去，
               那批獎勵也會回到<Link href="/tasks" className="text-brand-600 underline">「我的獎勵」</Link>，可以重新提列。
             </p>
           </Card>
@@ -105,8 +106,8 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
           <Card className="space-y-2 text-sm" data-testid="refund-summary">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-stone-500">原始金額 {formatMoney(tx.amount)}・已退款 {formatMoney(refunded)}</p>
-                <p className="font-semibold">可退款 {formatMoney(refundable)}</p>
+                <p className="text-xs text-stone-500">原始金額 {fmtMoney(tx.amount)}・已退款 {fmtMoney(refunded)}</p>
+                <p className="font-semibold">可退款 {fmtMoney(refundable)}</p>
               </div>
               {refundable > 0 && (
                 <Link href={`/transactions/refund?from=${tx.id}`} className="flex items-center gap-1.5 rounded-full bg-brand-200 ring-1 ring-brand-400/60 px-3.5 py-2 text-sm font-semibold text-stone-800"><ArtIcon name="refund" size={15} />退款</Link>
@@ -119,12 +120,12 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
                     <Link href={`/transactions/${r.id}`} className="text-brand-600 underline">
                       {toDateKey(r.occurredAt).replaceAll("-", "/")} 退款{r.note ? `・${r.note}` : ""}
                     </Link>
-                    <span className="text-emerald-600">+{formatMoney(r.amount)}</span>
+                    <span className="text-emerald-600">+{fmtMoney(r.amount)}</span>
                   </li>
                 ))}
                 <li className="flex justify-between border-t border-line pt-1 font-semibold">
                   <span>實際淨支出</span>
-                  <span>{formatMoney(tx.amount - refunded)}</span>
+                  <span>{fmtMoney(tx.amount - refunded)}</span>
                 </li>
               </ul>
             )}

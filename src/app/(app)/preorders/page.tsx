@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArtTile } from "@/components/ArtIcon";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { etaText, STATE_LABEL } from "@/server/domain/preorder";
 import { listPreorders } from "@/server/services/preorders";
@@ -13,6 +13,7 @@ import { toDateKey } from "@/lib/dates";
  */
 export default async function PreordersPage() {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const today = toDateKey(new Date());
   const list = await listPreorders(ctx, { today });
   const open = list.filter((p) => p.state === "ACTIVE");
@@ -33,7 +34,7 @@ export default async function PreordersPage() {
       <div className="px-4">
         <Card className="px-5 py-5">
           <p className="text-[13px] text-stone-500">還沒付的錢</p>
-          <p className="amount-lg mt-1 text-[2.2rem] text-stone-800" data-testid="preorder-remaining">{formatMoney(totalRemaining)}</p>
+          <p className="amount-lg mt-1 text-[2.2rem] text-stone-800" data-testid="preorder-remaining">{fmtMoney(totalRemaining)}</p>
           <p className="mt-1 text-xs text-stone-500">{open.length} 張進行中・這筆錢還在你的帳戶裡，不算這個月的支出</p>
         </Card>
 
@@ -58,12 +59,12 @@ export default async function PreordersPage() {
                         {who(p.ownerId)}{p.seller ? `・${p.seller}` : ""}・{p.state === "ACTIVE" ? etaText(p.expectedOn, today) : STATE_LABEL[p.state]}
                       </p>
                     </div>
-                    <span className="tnum shrink-0 text-right text-[15px] text-stone-800">{formatMoney(p.money.total)}</span>
+                    <span className="tnum shrink-0 text-right text-[15px] text-stone-800">{fmtMoney(p.money.total)}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3 border-t border-line pt-2 text-xs">
-                    <span className="text-stone-500">已付 <span className="tnum text-stone-700">{formatMoney(p.money.paid)}</span></span>
+                    <span className="text-stone-500">已付 <span className="tnum text-stone-700">{fmtMoney(p.money.paid)}</span></span>
                     {p.money.remaining > 0 ? (
-                      <span className="tnum font-semibold text-brand-700">待結 {formatMoney(p.money.remaining)}</span>
+                      <span className="tnum font-semibold text-brand-700">待結 {fmtMoney(p.money.remaining)}</span>
                     ) : (
                       <span className="text-stone-400">{STATE_LABEL[p.state]}</span>
                     )}

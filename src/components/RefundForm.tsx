@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { createRefundAction } from "@/app/actions/transfers";
-import { formatMoney, parseAmount, toInputString } from "@/lib/money";
+import { parseAmount, toInputString } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { Button, Card, ErrorText, Field, Input, Select, cx, inputClass } from "./ui";
 
@@ -28,6 +29,7 @@ export function RefundForm({ sources, accounts, today, now, defaultSourceId }: {
   now: string;
   defaultSourceId?: string | null;
 }) {
+  const fmtMoney = useMoney();
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [q, setQ] = useState("");
   const first = sources.find((s) => s.id === defaultSourceId) ?? sources[0];
@@ -83,16 +85,16 @@ export function RefundForm({ sources, accounts, today, now, defaultSourceId }: {
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-semibold">{s.title}</span>
-                <span className="shrink-0 font-bold">{formatMoney(s.amount)}</span>
+                <span className="shrink-0 font-bold">{fmtMoney(s.amount)}</span>
               </div>
               <p className="mt-0.5 text-xs text-stone-500">
                 {s.date}・{s.accountName}
                 {s.fundName ? `・${s.fundName}` : ""}
               </p>
               <p className="mt-0.5 text-xs">
-                <span className="text-stone-500">已退款 {formatMoney(s.refunded)}</span>
+                <span className="text-stone-500">已退款 {fmtMoney(s.refunded)}</span>
                 <span className="mx-1 text-stone-300">·</span>
-                <span className="font-semibold text-brand-600">可退款 {formatMoney(s.refundable)}</span>
+                <span className="font-semibold text-brand-600">可退款 {fmtMoney(s.refundable)}</span>
               </p>
             </button>
           ))}
@@ -101,7 +103,7 @@ export function RefundForm({ sources, accounts, today, now, defaultSourceId }: {
       </div>
 
       <Card className="space-y-3">
-        <Field label="退款金額" hint={source ? `這筆消費 ${formatMoney(source.amount)}，已退款 ${formatMoney(source.refunded)}，最多可退 ${formatMoney(source.refundable)}` : undefined}>
+        <Field label="退款金額" hint={source ? `這筆消費 ${fmtMoney(source.amount)}，已退款 ${fmtMoney(source.refunded)}，最多可退 ${fmtMoney(source.refundable)}` : undefined}>
           <Input
             name="amount"
             aria-label="退款金額"
@@ -113,7 +115,7 @@ export function RefundForm({ sources, accounts, today, now, defaultSourceId }: {
           />
         </Field>
         {over && source && (
-          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">退款金額不能超過可退款的 {formatMoney(source.refundable)}。</p>
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">退款金額不能超過可退款的 {fmtMoney(source.refundable)}。</p>
         )}
         <Field label="退款實際進到哪個帳戶" hint={source ? `原本是從「${source.accountName}」付款` : undefined}>
           <Select name="accountId" aria-label="退款帳戶" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
@@ -130,9 +132,9 @@ export function RefundForm({ sources, accounts, today, now, defaultSourceId }: {
       </Card>
 
       <p className="rounded-xl bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800" data-testid="refund-hint">
-        退款會建立一筆獨立紀錄，不會改掉原始消費：原始消費 {source ? formatMoney(source.amount) : "$1,000"} + 退款{" "}
-        {parsed > 0 ? formatMoney(parsed) : "$300"} → 實際淨支出{" "}
-        {source ? formatMoney(Math.max(0, source.amount - source.refunded - parsed)) + "（尚未退款的部分）" : "會自動扣掉退款"}。
+        退款會建立一筆獨立紀錄，不會改掉原始消費：原始消費 {source ? fmtMoney(source.amount) : "$1,000"} + 退款{" "}
+        {parsed > 0 ? fmtMoney(parsed) : "$300"} → 實際淨支出{" "}
+        {source ? fmtMoney(Math.max(0, source.amount - source.refunded - parsed)) + "（尚未退款的部分）" : "會自動扣掉退款"}。
         兩人的負擔會依原本的分帳比例一起減少，欠款自動重算。
         {source?.fundName && <><br />這筆是基金支出，退回來的錢會回到帳戶的「可自由使用」金額；要放回基金請到基金頁再投入一次。</>}
       </p>

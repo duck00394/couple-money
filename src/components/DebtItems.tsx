@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { ArtTile } from "./ArtIcon";
 import { Card, cx } from "./ui";
 
@@ -19,12 +19,13 @@ export interface DebtItemView {
  * 逐筆欠款的一列。可勾選與唯讀兩種畫面共用同一份排版，
  * 差別只在有沒有傳 `checkbox` 進來——兩個人打開結算頁看到的東西才會一致。
  */
-export function DebtItemRow({ item, checkbox, shareLabel }: {
+export function DebtItemRow({ currency, item, checkbox, shareLabel }: { currency: string;
   item: DebtItemView;
   checkbox?: ReactNode;
   /** 「我應負擔」在唯讀畫面要改成對方的名字 */
   shareLabel: string;
 }) {
+  const fmtMoney = moneyFmt(currency);
   const done = item.remaining === 0;
   return (
     <>
@@ -34,15 +35,15 @@ export function DebtItemRow({ item, checkbox, shareLabel }: {
         <p className="truncate text-[15px] font-medium text-stone-800">{item.title}</p>
         {/* 390px 一行塞不下四個欄位，拆兩行才不會被截掉 */}
         <p className="truncate text-xs text-stone-500">
-          {item.dateKey.replaceAll("-", "/")}・原始 {formatMoney(item.amount)}
+          {item.dateKey.replaceAll("-", "/")}・原始 {fmtMoney(item.amount)}
         </p>
         <p className="truncate text-[11px] text-stone-400">
-          {shareLabel} {formatMoney(item.myShare)}
-          {item.settled > 0 && `・已沖銷 ${formatMoney(item.settled)} / ${formatMoney(item.owed)}`}
+          {shareLabel} {fmtMoney(item.myShare)}
+          {item.settled > 0 && `・已沖銷 ${fmtMoney(item.settled)} / ${fmtMoney(item.owed)}`}
         </p>
       </div>
       <span className={cx("tnum shrink-0 text-[15px]", done ? "text-stone-400" : "font-semibold text-brand-700")}>
-        {done ? "已還清" : formatMoney(item.remaining)}
+        {done ? "已還清" : fmtMoney(item.remaining)}
       </span>
     </>
   );
@@ -55,7 +56,7 @@ export function DebtItemRow({ item, checkbox, shareLabel }: {
  * 錢是對方要付的，不該由我在自己的手機上代替他勾選。
  * 真的收到錢時，用下面那個表單記一筆就好。
  */
-export function DebtItemList({ items, ownerName }: { items: DebtItemView[]; ownerName: string }) {
+export function DebtItemList({ currency, items, ownerName }: { currency: string; items: DebtItemView[]; ownerName: string }) {
   const open = items.filter((i) => i.remaining > 0);
   const settled = items.length - open.length;
   return (
@@ -76,7 +77,7 @@ export function DebtItemList({ items, ownerName }: { items: DebtItemView[]; owne
             data-paid={i.remaining === 0 ? "1" : "0"}
             className={cx("flex items-center gap-3 px-4 py-3", i.remaining === 0 && "opacity-55")}
           >
-            <DebtItemRow item={i} shareLabel={`${ownerName}應負擔`} />
+            <DebtItemRow currency={currency} item={i} shareLabel={`${ownerName}應負擔`} />
           </div>
         ))}
       </Card>

@@ -4,7 +4,7 @@ import { ArtIcon } from "@/components/ArtIcon";
 import { VoidedEntryActions } from "@/components/PurchaseForms";
 import { Avatar, Card, cx, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getMainBookContext } from "@/server/context";
 import { DomainError } from "@/server/domain/errors";
 import { JOINT, ownerLabel } from "@/server/domain/purchase";
@@ -21,6 +21,7 @@ import { getGroupDetail, type LevelRow } from "@/server/services/purchases";
  */
 export default async function PurchaseGroupPage({ params, searchParams }: PageProps<"/purchases/[groupId]">) {
   const { ctx } = await getMainBookContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const { groupId } = await params;
   const sp = await searchParams;
   const cat = typeof sp.cat === "string" ? sp.cat : "";
@@ -67,7 +68,7 @@ export default async function PurchaseGroupPage({ params, searchParams }: PagePr
             {r.isDefault && <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-bold text-brand-700">預設</span>}
           </p>
           <div className="shrink-0 text-right">
-            <p className="amount text-[15px]">{formatMoney(r.totals.amount)}</p>
+            <p className="amount text-[15px]">{fmtMoney(r.totals.amount)}</p>
             <p className="mt-0.5 text-[11px] text-stone-500">{r.totals.count} 件</p>
           </div>
           <span className="text-lg text-stone-400">›</span>
@@ -88,7 +89,7 @@ export default async function PurchaseGroupPage({ params, searchParams }: PagePr
         <Card className="flex items-baseline gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-stone-500" data-testid="purchase-crumb">{crumb}</p>
-            <p className="amount-lg mt-1 text-[30px]" data-testid="purchase-total">{formatMoney(detail.totals.amount)}</p>
+            <p className="amount-lg mt-1 text-[30px]" data-testid="purchase-total">{fmtMoney(detail.totals.amount)}</p>
           </div>
           <div className="shrink-0 text-right">
             <p className="tnum text-base font-bold" data-testid="purchase-count">{detail.totals.count} 件</p>
@@ -161,7 +162,7 @@ export default async function PurchaseGroupPage({ params, searchParams }: PagePr
                       <p className="truncate font-semibold text-stone-500 line-through">{e.title}</p>
                       <p className="mt-0.5 text-xs font-semibold text-orange-700">原始記帳已作廢・沒有計入上面的總計</p>
                     </div>
-                    <span className="amount text-stone-400 line-through">{formatMoney(e.amount)}</span>
+                    <span className="amount text-stone-400 line-through">{fmtMoney(e.amount)}</span>
                   </div>
                   {ctx.canWrite && <div className="mt-2"><VoidedEntryActions entry={{ id: e.id, title: e.title, amount: e.amount }} /></div>}
                 </div>
@@ -195,7 +196,7 @@ export default async function PurchaseGroupPage({ params, searchParams }: PagePr
                     {toDateKey(e.occurredAt).slice(5).replace("-", "/")}
                   </span>
                 </div>
-                <span className="amount shrink-0">{formatMoney(e.amount)}</span>
+                <span className="amount shrink-0">{fmtMoney(e.amount)}</span>
               </Link>
             ))}
           </Card>

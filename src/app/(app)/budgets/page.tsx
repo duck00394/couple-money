@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BudgetGroupCard, NewBudgetForm, type BudgetGroupItem } from "@/components/BudgetForms";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { clampMonth, monthLabel, shiftMonth } from "@/server/domain/stats";
 import { budgetOverview } from "@/server/services/budgets";
@@ -18,6 +18,7 @@ const MAX_BACK = 12;
  */
 export default async function BudgetsPage({ searchParams }: PageProps<"/budgets">) {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const sp = await searchParams;
   const today = toDateKey(new Date());
   const m = Array.isArray(sp.m) ? sp.m[0] : sp.m;
@@ -53,8 +54,8 @@ export default async function BudgetsPage({ searchParams }: PageProps<"/budgets"
           <div className="mt-4 px-1" data-testid="budget-summary">
             <p className="text-xs text-stone-500">{label(month)}預算合計</p>
             <p className="amount-lg mt-1 text-[2rem] text-stone-800">
-              {formatMoney(summary.totalSpent)}
-              <span className="text-base font-semibold text-stone-400"> / {formatMoney(summary.totalAmount)}</span>
+              {fmtMoney(summary.totalSpent)}
+              <span className="text-base font-semibold text-stone-400"> / {fmtMoney(summary.totalAmount)}</span>
             </p>
             <p className="mt-1 text-xs text-stone-500">
               共 {summary.count} 筆・

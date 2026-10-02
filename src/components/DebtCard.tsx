@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { formatMoney } from "@/lib/money";
+import { homeApprox, moneyFmt } from "@/lib/money";
 import type { BookContext } from "@/server/services/books";
 import { Avatar, Card } from "./ui";
 
 export function DebtCard({ ctx, debt, compact, base = "" }: { ctx: BookContext; debt?: { from: string; to: string; amount: number }; compact?: boolean; base?: string }) {
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const partner = ctx.partner;
   if (!partner) {
     return (
@@ -25,9 +26,14 @@ export function DebtCard({ ctx, debt, compact, base = "" }: { ctx: BookContext; 
         <div className="flex-1">
           <p className="text-sm text-stone-600">{text}</p>
           {debt && (
-            <p className={`text-2xl font-bold ${meOwe ? "text-orange-600" : "text-emerald-700"}`} data-testid="debt-amount">
-              {formatMoney(debt.amount)}
-            </p>
+            <>
+              <p className={`text-2xl font-bold ${meOwe ? "text-orange-600" : "text-emerald-700"}`} data-testid="debt-amount">
+                {fmtMoney(debt.amount)}
+              </p>
+              {homeApprox(debt.amount, ctx.book.homeRate) && (
+                <p className="text-xs text-stone-500">約 {homeApprox(debt.amount, ctx.book.homeRate)}</p>
+              )}
+            </>
           )}
         </div>
         {/* 結算每週會用到一次，別讓它只是一顆白色小膠囊 */}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArtIcon } from "@/components/ArtIcon";
 import { NewGroupForm } from "@/components/PurchaseForms";
 import { Card, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getMainBookContext } from "@/server/context";
 import { listGroups } from "@/server/services/purchases";
 
@@ -14,6 +14,7 @@ import { listGroups } from "@/server/services/purchases";
  */
 export default async function PurchaseManagePage() {
   const { ctx } = await getMainBookContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const groups = await listGroups(ctx);
 
   return (
@@ -42,7 +43,7 @@ export default async function PurchaseManagePage() {
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className="amount text-[15px]">{formatMoney(g.totals.amount)}</p>
+                    <p className="amount text-[15px]">{fmtMoney(g.totals.amount)}</p>
                     <p className="mt-0.5 text-[11px] text-stone-500">{g.totals.count} 件</p>
                   </div>
                   <span className="text-lg text-stone-400">›</span>

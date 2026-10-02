@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { FREQUENCY_HINT, maskLabel } from "@/server/domain/streak";
 import type { BookContext } from "@/server/services/books";
 import type { TaskCard } from "@/server/services/tasks";
@@ -33,6 +33,7 @@ function whoText(card: TaskCard, ctx: BookContext) {
  * 「打卡」是實心按鈕（可操作），「已完成」是安靜的文字狀態（不再長得像按鈕）。
  */
 export function TaskRow({ card, ctx, showSchedule }: { card: TaskCard; ctx: BookContext; showSchedule?: boolean }) {
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const { task, today, stats } = card;
   const done = card.weekly ? card.doneThisWeek : !!today && (today.status === "APPROVED" || today.status === "PENDING");
   const pending = !card.weekly && today?.status === "PENDING";
@@ -41,7 +42,7 @@ export function TaskRow({ card, ctx, showSchedule }: { card: TaskCard; ctx: Book
 
   // 第三層：今天／本週實際做了什麼
   const progress =
-    card.perTime && card.todayCount > 0 ? `今天 ${card.todayCount} 次・共 ${formatMoney(card.todayReward)}`
+    card.perTime && card.todayCount > 0 ? `今天 ${card.todayCount} 次・共 ${fmtMoney(card.todayReward)}`
     : card.weekly && card.doneThisWeek ? "本週已完成"
     : showSchedule && !card.perTime && stats.current > 0 ? `連續 ${stats.current} ${card.weekly ? "週" : "天"}`
     : "";
@@ -63,7 +64,7 @@ export function TaskRow({ card, ctx, showSchedule }: { card: TaskCard; ctx: Book
             </p>
           </div>
           {task.rewardAmount > 0 && (
-            <span className="tnum shrink-0 text-[15px] text-brand-700">+{formatMoney(task.rewardAmount)}</span>
+            <span className="tnum shrink-0 text-[15px] text-brand-700">+{fmtMoney(task.rewardAmount)}</span>
           )}
         </Link>
 

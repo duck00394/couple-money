@@ -3,7 +3,7 @@ import { ReviewButtons, WaivePenaltyButton } from "@/components/CheckInWidgets";
 import { TaskRow } from "@/components/TaskRow";
 import { Card, Collapsible, Empty, PageHeader, ProgressBar, SectionTitle } from "@/components/ui";
 import { dateHeading, dbDateToKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { applyMissedPenalties, listBadges, pendingReviews, recentPenalties, taskBoard, todayRewards } from "@/server/services/tasks";
 import { rewardBalance } from "@/server/services/rewards";
@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 
 export default async function TasksPage() {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   await applyMissedPenalties(ctx);
   const [board, reviews, penalties, badges, rewards, myReward, accounts] = await Promise.all([
     taskBoard(ctx), pendingReviews(ctx), recentPenalties(ctx, 5), listBadges(ctx), todayRewards(ctx),
@@ -57,7 +58,7 @@ export default async function TasksPage() {
           </Card>
           <Card className="px-3 py-3">
             <p className="text-xs text-stone-500">今日獲得獎金（尚未入金）</p>
-            <p className="text-xl font-bold text-brand-700" data-testid="today-rewards">+{formatMoney(rewards.total)}</p>
+            <p className="text-xl font-bold text-brand-700" data-testid="today-rewards">+{fmtMoney(rewards.total)}</p>
             {ctx.partner && <p className="mt-1 text-[11px] text-stone-400">{ctx.partner.nickname} 本週 {pct(board.weekPartner)}</p>}
           </Card>
         </div>
@@ -173,7 +174,7 @@ export default async function TasksPage() {
                   <ArtIcon name="undo" size={20} className="text-amber-700" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{name(p.userId)}：{p.task.title} 未完成</p>
-                    <p className="truncate text-xs text-stone-500">{dateHeading(dbDateToKey(p.date))}{p.amount > 0 ? `・扣 ${formatMoney(p.amount)}` : ""}{p.text ? `・${p.text}` : ""}</p>
+                    <p className="truncate text-xs text-stone-500">{dateHeading(dbDateToKey(p.date))}{p.amount > 0 ? `・扣 ${fmtMoney(p.amount)}` : ""}{p.text ? `・${p.text}` : ""}</p>
                   </div>
                   {ctx.canWrite && (p.userId !== ctx.me.userId || !ctx.partner) && <WaivePenaltyButton id={p.id} />}
                 </div>

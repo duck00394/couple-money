@@ -352,3 +352,129 @@ describe("V15：帳本系統", () => {
     assert.equal(all.length, 3);
   });
 });
+
+/**
+ * V16：帳本設定（匯率直接在帳本上、日期可編輯、永久刪除）。
+ */
+describe("V16：帳本設定與刪除", () => {
+  let c: Awaited<ReturnType<typeof setupCouple>>;
+  let tripId: string;
+
+  before(async () => {
+    await reset();
+    c = await setupCouple();
+    const trip = await books.createSecondaryBook(c.ctxA, c.aId, {
+      name: "沖繩", type: "TRIP", baseCurrency: "JPY",
+      startOn: "2026-11-01", endOn: "2026-11-05",
+      homeRateUnits: 100, homeRateMinor: $(21.5),
+    });
+    tripId = trip.id;
+  });
+
+  it("建立帳本時就能設匯率，不用再跑設定頁", async () => {
+    const ctx = await books.loadContext(c.aId, tripId);
+    assert.deepEqual(ctx.book.homeRate, { units: 100, minor: 2150 });
+  });
+
+  it("本位幣就是台幣的帳本不會留下用不到的匯率", async () => {
+    const b = await books.createSecondaryBook(c.ctxA, c.aId, {
+      name: "台中", type: "TRIP", homeRateUnits: 100, homeRateMinor: $(21.5),
+    });
+    const ctx = await books.loadContext(c.aId, b.id);
+    assert.equal(ctx.book.homeRate, null, "台幣帳本不該有 homeRate");
+  });
+
+  it("日期、名稱、備註、匯率都可以改", async () => {
+    const ctx = await books.loadContext(c.aId, tripId);
+    await books.updateBook(ctx, {
+      name: "沖繩 2026", startOn: "2026-11-02", endOn: "2026-11-08",
+      note: "改過了", homeRateUnits: 100, homeRateMinor: $(22),
+    });
+    const after = await books.listMyBooks(c.aId);
+    const row = after.find((x) => x.id === tripId)!;
+    assert.equal(row.name, "沖繩 2026");
+    assert.equal(row.startOn, "2026-11-02");
+    assert.equal(row.endOn, "2026-11-08");
+    assert.equal(row.note, "改過了");
+    assert.deepEqual(row.homeRate, { units: 100, minor: 2200 });
+  });
+
+  it("改匯率不會動到任何一筆交易的金額（它只是顯示用）", async () => {
+    const ctx = await books.loadContext(c.aId, tripId);
+    const acc = (await ledger.listAccounts(ctx)).find((a) => a.ownerId === c.aId)!.id;
+    const tx = await ledger.createTransaction(ctx, {
+      type: "EXPENSE", amount: $(2000), accountId: acc, categoryId: null,
+      title: "拉麵", note: "", occurredOn: "2026-11-03",
+      split: { method: "EQUAL", participants: [{ userId: c.aId }, { userId: c.bId }] },
+      clientRequestId: rid(),
+    });
+    const before = (await prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } })).amount;
+    await books.updateBook(await books.loadContext(c.aId, tripId), {
+      name: "沖繩 2026", homeRateUnits: 100, homeRateMinor: $(30),
+    });
+    assert.equal((await prisma.transaction.findUniqueOrThrow({ where: { id: tx.id } })).amount, before);
+  });
+
+  it("結束日期不能早於開始日期", async () => {
+    const ctx = await books.loadContext(c.aId, tripId);
+    await rejects(books.updateBook(ctx, { name: "沖繩", startOn: "2026-11-10", endOn: "2026-11-01" }), "BOOK_DATE");
+  });
+
+  it("已結案的帳本不能編輯", async () => {
+    const b = await books.createSecondaryBook(c.ctxA, c.aId, { name: "要結案的", type: "TRIP" });
+    await books.closeBook(await books.loadContext(c.aId, b.id), c.aId);
+    await rejects(books.updateBook(await books.loadContext(c.aId, b.id), { name: "改不了" }), "BOOK_READ_ONLY");
+  });
+
+  /* ───────────────────────── 刪除 ───────────────────────── */
+
+  it("帳本名稱打錯就刪不掉", async () => {
+    await rejects(books.deleteBook(c.aId, tripId, "沖繩"), "BOOK_CONFIRM_NAME");
+    await rejects(books.deleteBook(c.aId, tripId, ""), "BOOK_CONFIRM_NAME");
+    // 帳本還在
+    assert.ok(await prisma.book.findUnique({ where: { id: tripId } }));
+  });
+
+  it("原帳本永遠不能刪", async () => {
+    const mainId = (await books.mainBookId(c.aId))!;
+    const main = await prisma.book.findUniqueOrThrow({ where: { id: mainId } });
+    await rejects(books.deleteBook(c.aId, mainId, main.name), "BOOK_MAIN_DELETE");
+    assert.ok(await prisma.book.findUnique({ where: { id: mainId } }));
+  });
+
+  it("不是成員就刪不掉", async () => {
+    const outsider = await import("../../src/server/services/users").then((m) =>
+      m.registerUser({ email: `del-${rid().slice(0, 6)}@example.com`, password: "password123", name: "路人" }),
+    );
+    await rejects(books.deleteBook(outsider.id, tripId, "沖繩 2026"), "BOOK_FORBIDDEN");
+  });
+
+  it("名稱一字不差才刪得掉，而且連裡面的資料一起清乾淨", async () => {
+    const before = await prisma.transaction.count({ where: { bookId: tripId } });
+    assert.ok(before > 0, "測試資料沒建起來");
+
+    await books.deleteBook(c.aId, tripId, "沖繩 2026");
+
+    assert.equal(await prisma.book.count({ where: { id: tripId } }), 0);
+    assert.equal(await prisma.transaction.count({ where: { bookId: tripId } }), 0, "交易沒清掉");
+    assert.equal(await prisma.account.count({ where: { bookId: tripId } }), 0, "帳戶沒清掉");
+    assert.equal(await prisma.category.count({ where: { bookId: tripId } }), 0, "分類沒清掉");
+    assert.equal(await prisma.bookMember.count({ where: { bookId: tripId } }), 0, "成員沒清掉");
+    // 沒有孤兒的 payment / split
+    assert.equal(await prisma.transactionPayment.count({ where: { transaction: { bookId: tripId } } }), 0);
+  });
+
+  it("刪掉目前使用中的帳本之後會切回原帳本", async () => {
+    const b = await books.createSecondaryBook(c.ctxA, c.aId, { name: "刪掉我", type: "TRIP" });
+    await books.switchBook(c.aId, b.id);
+    await books.deleteBook(c.aId, b.id, "刪掉我");
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: c.aId } });
+    assert.equal(user.activeBookId, await books.mainBookId(c.aId));
+  });
+
+  it("刪掉一本不會影響其他帳本", async () => {
+    const left = await books.listMyBooks(c.aId);
+    assert.ok(left.some((x) => x.type === "MAIN"));
+    assert.ok(left.some((x) => x.name === "台中"), "別本帳本被牽連刪掉了");
+  });
+});

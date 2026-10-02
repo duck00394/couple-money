@@ -3,7 +3,7 @@ import { ArtIcon } from "@/components/ArtIcon";
 import { AddFromTransactionForm, AddManualForm } from "@/components/PurchaseForms";
 import { Card, cx, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getMainBookContext } from "@/server/context";
 import { listAddableTransactions, optionsForForm, suggestForTransaction } from "@/server/services/purchases";
 
@@ -15,6 +15,7 @@ import { listAddableTransactions, optionsForForm, suggestForTransaction } from "
  */
 export default async function NewPurchasePage({ searchParams }: PageProps<"/purchases/new">) {
   const { ctx } = await getMainBookContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const sp = await searchParams;
   const fixedGroupId = typeof sp.group === "string" ? sp.group : undefined;
   const from = typeof sp.tx === "string" ? sp.tx : "";
@@ -96,7 +97,7 @@ export default async function NewPurchasePage({ searchParams }: PageProps<"/purc
                           <p className="truncate font-medium">{t.title}</p>
                           <p className="mt-0.5 text-xs text-stone-500">{t.categoryName} ・ {toDateKey(t.occurredAt).slice(5).replace("-", "/")}</p>
                         </div>
-                        <span className="amount shrink-0">{formatMoney(t.amount)}</span>
+                        <span className="amount shrink-0">{fmtMoney(t.amount)}</span>
                       </Link>
                     ))}
                   </Card>

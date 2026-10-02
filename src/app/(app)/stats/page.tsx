@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BarRow, MiniTrend } from "@/components/StatsBars";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { homeApprox, moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { currencyBreakdown } from "@/server/services/rates";
 import { currencyOf, formatCurrency } from "@/lib/currency";
@@ -17,6 +17,7 @@ const TREND_MONTHS = 6;
 /** 統計與報表：純讀取，不會寫入任何資料。 */
 export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const sp = await searchParams;
   const today = toDateKey(new Date());
   const m = Array.isArray(sp.m) ? sp.m[0] : sp.m;
@@ -71,22 +72,25 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
             <Card className="mt-3 p-0">
               <Link href={drill()} className="block px-5 py-4 active:bg-stone-50">
                 <p className="text-sm text-stone-500">淨支出</p>
-                <p className="amount-lg mt-1 text-[2.4rem] text-stone-800" data-testid="stats-net-expense">{formatMoney(net)}</p>
+                <p className="amount-lg mt-1 text-[2.4rem] text-stone-800" data-testid="stats-net-expense">{fmtMoney(net)}</p>
+                {homeApprox(net, ctx.book.homeRate) && (
+                  <p className="text-sm text-stone-500" data-testid="stats-net-home">約 {homeApprox(net, ctx.book.homeRate)}</p>
+                )}
                 <p className="mt-1 text-[11px] text-stone-400">
                   {stats.totals.refund > 0
-                    ? `支出 ${formatMoney(stats.totals.expense)} − 退款 ${formatMoney(stats.totals.refund)}`
+                    ? `支出 ${fmtMoney(stats.totals.expense)} − 退款 ${fmtMoney(stats.totals.refund)}`
                     : `共 ${stats.totals.count} 筆`}
                 </p>
               </Link>
               <Link href={drill({ kind: "INCOME" })} className="flex items-baseline justify-between border-t border-line px-5 py-3.5 active:bg-stone-50">
                 <span className="text-sm text-stone-500">收入<span className="ml-2 text-[11px] text-stone-400">不含轉帳與結算</span></span>
-                <span className="amount text-xl text-brand-600" data-testid="stats-income">{formatMoney(stats.totals.income)}</span>
+                <span className="amount text-xl text-brand-600" data-testid="stats-income">{fmtMoney(stats.totals.income)}</span>
               </Link>
             </Card>
 
             {/*
               V14：多幣別明細（規格點 12）。
-              上面的淨支出已經是全部換算成台幣的總額；這裡拆開來看「其中哪些是外幣花的」。
+              上面的淨支出已經是全部換算成本位幣的總額；這裡拆開來看「其中哪些是外幣花的」。
               刻意只列原幣小計與它當初換算出來的台幣，**不把不同幣別相加**。
             */}
             {byCurrency.length > 0 && (
@@ -101,7 +105,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
                       </span>
                       <span className="text-right">
                         <span className="amount block text-[15px] text-stone-800">{formatCurrency(c.foreign, c.currency)}</span>
-                        <span className="block text-[11px] text-stone-500">≈ {formatMoney(c.base)}</span>
+                        <span className="block text-[11px] text-stone-500">≈ {fmtMoney(c.base)}</span>
                       </span>
                     </div>
                   ))}
@@ -114,16 +118,16 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
 
             <SectionTitle>誰掏錢（實際付出去的）</SectionTitle>
             <Card quiet className="divide-y divide-line p-0">
-              <BarRow label="我" amount={stats.paid.me} ratio={ratio(stats.paid.me)} tone="me" testId="paid-me" />
-              <BarRow label={partnerName} amount={stats.paid.partner} ratio={ratio(stats.paid.partner)} tone="partner" testId="paid-partner" />
-              <BarRow label="共同帳戶" amount={stats.paid.joint} ratio={ratio(stats.paid.joint)} tone="joint" testId="paid-joint" />
+              <BarRow currency={ctx.book.baseCurrency} label="我" amount={stats.paid.me} ratio={ratio(stats.paid.me)} tone="me" testId="paid-me" />
+              <BarRow currency={ctx.book.baseCurrency} label={partnerName} amount={stats.paid.partner} ratio={ratio(stats.paid.partner)} tone="partner" testId="paid-partner" />
+              <BarRow currency={ctx.book.baseCurrency} label="共同帳戶" amount={stats.paid.joint} ratio={ratio(stats.paid.joint)} tone="joint" testId="paid-joint" />
               <p className="px-4 py-2.5 text-[11px] text-stone-400">三項加總 = 淨支出；退款收回的錢會從付款的那個帳戶扣回去。</p>
             </Card>
 
             <SectionTitle>誰負擔（分帳後實際要承擔的）</SectionTitle>
             <Card quiet className="divide-y divide-line p-0">
-              <BarRow label="我" amount={stats.borne.me} ratio={ratio(stats.borne.me)} tone="me" testId="borne-me" />
-              <BarRow label={partnerName} amount={stats.borne.partner} ratio={ratio(stats.borne.partner)} tone="partner" testId="borne-partner" />
+              <BarRow currency={ctx.book.baseCurrency} label="我" amount={stats.borne.me} ratio={ratio(stats.borne.me)} tone="me" testId="borne-me" />
+              <BarRow currency={ctx.book.baseCurrency} label={partnerName} amount={stats.borne.partner} ratio={ratio(stats.borne.partner)} tone="partner" testId="borne-partner" />
               <p className="px-4 py-2.5 text-[11px] text-stone-400">
                 共同帳戶付的錢，負擔還是會分給兩個人（只是不產生誰欠誰），所以這裡沒有「共同」這一項。
               </p>
@@ -135,6 +139,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
                 <Card quiet className="divide-y divide-line p-0">
                   {stats.categories.map((c) => (
                     <BarRow
+                      currency={ctx.book.baseCurrency}
                       key={c.categoryId ?? "none"}
                       label={c.name}
                       icon={c.icon}
@@ -152,7 +157,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
 
         <SectionTitle>最近 {TREND_MONTHS} 個月</SectionTitle>
         <Card className="p-0">
-          <MiniTrend points={trend} labelOf={label} />
+          <MiniTrend currency={ctx.book.baseCurrency} points={trend} labelOf={label} />
           <p className="px-4 pb-3 text-[11px] text-stone-400">
             <span className="mr-1 inline-block h-2 w-2 rounded-full bg-brand-600 align-middle" />淨支出
             <span className="ml-3 mr-1 inline-block h-2 w-2 rounded-full bg-brand-200 ring-1 ring-inset ring-brand-400 align-middle" />收入
@@ -164,7 +169,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
             <SectionTitle>轉帳</SectionTitle>
             <Card>
               <p className="text-sm" data-testid="stats-transfer">
-                {stats.totals.transferCount} 筆・{formatMoney(stats.totals.transferAmount)}
+                {stats.totals.transferCount} 筆・{fmtMoney(stats.totals.transferAmount)}
               </p>
               <p className="mt-1 text-[11px] text-stone-400">帳戶間搬錢（含任務獎金入金），不算收入也不算支出。</p>
             </Card>
@@ -175,7 +180,7 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
         <Card>
           <p className="text-sm" data-testid="stats-debt">
             {debt
-              ? `${debt.from === ctx.me.userId ? `我要還 ${partnerName}` : `${partnerName} 要還我`} ${formatMoney(debt.amount)}`
+              ? `${debt.from === ctx.me.userId ? `我要還 ${partnerName}` : `${partnerName} 要還我`} ${fmtMoney(debt.amount)}`
               : "目前互不相欠"}
           </p>
           <p className="mt-1 text-[11px] text-stone-400">這是「目前」的狀態，不是{label(month)}的數字。</p>
@@ -189,8 +194,8 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
                 <div key={f.id} className="flex items-baseline justify-between gap-2 px-4 py-3 text-sm" data-testid="stats-fund">
                   <span className="flex min-w-0 flex-1 items-center gap-2 truncate"><ArtIcon name={f.emoji} size={15} className="text-stone-400" />{f.name}</span>
                   <span className="shrink-0 text-right">
-                    <span className="tnum font-semibold">{formatMoney(f.real)}</span>
-                    {f.pending !== 0 && <span className="ml-1 text-[11px] text-stone-400">尚未入金 {formatMoney(f.pending)}</span>}
+                    <span className="tnum font-semibold">{fmtMoney(f.real)}</span>
+                    {f.pending !== 0 && <span className="ml-1 text-[11px] text-stone-400">尚未入金 {fmtMoney(f.pending)}</span>}
                   </span>
                 </div>
               ))}

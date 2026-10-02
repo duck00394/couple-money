@@ -1,9 +1,10 @@
 "use client";
 
 import { ActionForm } from "./ActionForm";
+import { useMoney } from "./CurrencyContext";
 import { useActionState, useState } from "react";
 import { cancelSettlementAction, settleAction } from "@/app/actions/settle";
-import { formatMoney, toInputString } from "@/lib/money";
+import { toInputString } from "@/lib/money";
 import { Button, cx, ErrorText, Field, Input, Select } from "./ui";
 
 type Acc = { id: string; name: string; icon: string };
@@ -17,6 +18,7 @@ export function SettleForm(props: {
   fromAccounts: Acc[];
   toAccounts: Acc[];
 }) {
+  const fmtMoney = useMoney();
   const { max } = props;
   // 欠款金額改變時父層會用新的 key 重建此元件，因此每次結算都有新的 requestId
   const [clientRequestId] = useState(() => crypto.randomUUID());
@@ -34,13 +36,13 @@ export function SettleForm(props: {
       <div className="grid grid-cols-2 gap-1 rounded-xl bg-stone-100 p-1">
         {(["all", "part"] as const).map((m) => (
           <button key={m} type="button" onClick={() => setMode(m)} className={cx("h-10 rounded-lg text-sm", mode === m ? "bg-white font-semibold shadow-sm" : "text-stone-500")}>
-            {m === "all" ? `全部結清 ${formatMoney(max)}` : "部分結算"}
+            {m === "all" ? `全部結清 ${fmtMoney(max)}` : "部分結算"}
           </button>
         ))}
       </div>
 
       {mode === "part" && (
-        <Field label="這次還多少" hint={`最多 ${formatMoney(max)}`}>
+        <Field label="這次還多少" hint={`最多 ${fmtMoney(max)}`}>
           <Input aria-label="結算金額" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))} />
         </Field>
       )}

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { GoalForm, GoalStatusButtons } from "@/components/GoalForms";
 import { DeleteRequestPanel } from "@/components/DeleteRequest";
 import { Card, Collapsible, PageHeader, ProgressBar, SectionTitle, TwoPartProgress } from "@/components/ui";
-import { formatMoney, toInputString } from "@/lib/money";
+import { moneyFmt, toInputString } from "@/lib/money";
 import { percentText } from "@/server/domain/fund";
 import { getAppContext } from "@/server/context";
 import { listFunds } from "@/server/services/funds";
@@ -15,6 +15,7 @@ import { ArtTile } from "@/components/ArtIcon";
 export default async function GoalPage({ params }: PageProps<"/goals/[id]">) {
   const { id } = await params;
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const goal = await getGoal(ctx, id);
   if (!goal) notFound();
   const [funds, deleteRequests] = await Promise.all([listFunds(ctx, { includeArchived: true }), pendingDeleteRequests(ctx, { entityType: "GOAL", entityId: goal.id })]);
@@ -30,8 +31,8 @@ export default async function GoalPage({ params }: PageProps<"/goals/[id]">) {
           {goal.description && <p className="mt-1 text-sm text-stone-500">{goal.description}</p>}
           {achieved && <p className="mt-2 inline-block rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">已完成</p>}
           <p className="mt-4 text-xs text-stone-500">目前金額（實際基金金額）</p>
-          <p className="text-3xl font-bold" data-testid="goal-current">{formatMoney(goal.current)}</p>
-          <p className="text-sm text-stone-500">目標 {formatMoney(goal.targetAmount)}・{goal.fund ? percentText(goal.current, goal.targetAmount) : "未連結基金"}</p>
+          <p className="text-3xl font-bold" data-testid="goal-current">{fmtMoney(goal.current)}</p>
+          <p className="text-sm text-stone-500">目標 {fmtMoney(goal.targetAmount)}・{goal.fund ? percentText(goal.current, goal.targetAmount) : "未連結基金"}</p>
           {goal.fund ? (
             <TwoPartProgress real={goal.current} pending={goal.pending} target={goal.targetAmount} tone={achieved ? "green" : "brand"} className="mt-3 h-3" />
           ) : (
@@ -39,11 +40,11 @@ export default async function GoalPage({ params }: PageProps<"/goals/[id]">) {
           )}
           {goal.pending > 0 && (
             <p className="mt-2 text-xs text-amber-700" data-testid="goal-pending">
-              ＋尚未入金獎金 {formatMoney(goal.pending)}，含未入金為 {percentText(goal.current + goal.pending, goal.targetAmount)}（入金後才算進目前金額）
+              ＋尚未入金獎金 {fmtMoney(goal.pending)}，含未入金為 {percentText(goal.current + goal.pending, goal.targetAmount)}（入金後才算進目前金額）
             </p>
           )}
           <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
-            <div><p className="text-xs text-stone-500">剩餘金額</p><p className="font-semibold" data-testid="goal-remaining">{formatMoney(goal.remaining)}</p></div>
+            <div><p className="text-xs text-stone-500">剩餘金額</p><p className="font-semibold" data-testid="goal-remaining">{fmtMoney(goal.remaining)}</p></div>
             <div><p className="text-xs text-stone-500">開始</p><p className="font-semibold">{goal.startDate.replaceAll("-", "/")}</p></div>
             <div><p className="text-xs text-stone-500">目標日期</p><p className="font-semibold">{goal.deadline ? goal.deadline.replaceAll("-", "/") : "未設定"}</p></div>
           </div>
@@ -73,7 +74,7 @@ export default async function GoalPage({ params }: PageProps<"/goals/[id]">) {
             <SectionTitle>狀態</SectionTitle>
             {goal.fund ? (
               <Card className="text-sm text-stone-500">
-                這個目標連結了基金「{goal.fund.name}」，實際基金金額達到 {formatMoney(goal.targetAmount)} 就會自動完成，不需要手動標記。
+                這個目標連結了基金「{goal.fund.name}」，實際基金金額達到 {fmtMoney(goal.targetAmount)} 就會自動完成，不需要手動標記。
               </Card>
             ) : (
               <GoalStatusButtons id={goal.id} achieved={achieved} />

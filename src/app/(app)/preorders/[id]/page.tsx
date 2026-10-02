@@ -4,7 +4,7 @@ import { ArtTile } from "@/components/ArtIcon";
 import { CancelPreorderButton, DeletePreorderButton, PayPreorderForm, PreorderForm } from "@/components/PreorderForms";
 import { Card, Collapsible, PageHeader, ProgressBar, SectionTitle } from "@/components/ui";
 import { dateHeading, toDateKey } from "@/lib/dates";
-import { formatMoney, toInputString } from "@/lib/money";
+import { moneyFmt, toInputString } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { etaText, STATE_LABEL } from "@/server/domain/preorder";
 import { getPreorder } from "@/server/services/preorders";
@@ -13,6 +13,7 @@ import { listAccounts, listCategories } from "@/server/services/ledger";
 export default async function PreorderDetailPage({ params }: PageProps<"/preorders/[id]">) {
   const { id } = await params;
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const today = toDateKey(new Date());
   const [p, accounts, categories] = await Promise.all([getPreorder(ctx, id, { today }), listAccounts(ctx), listCategories(ctx)]);
   if (!p) notFound();
@@ -43,10 +44,10 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
           <div className="mt-4 border-t border-line pt-3">
             <div className="flex items-baseline justify-between">
               <span className="text-xs text-stone-500">應付總額</span>
-              <span className="tnum text-[17px] text-stone-800">{formatMoney(p.money.total)}</span>
+              <span className="tnum text-[17px] text-stone-800">{fmtMoney(p.money.total)}</span>
             </div>
             <p className="mt-0.5 text-[11px] text-stone-400">
-              商品 {formatMoney(p.itemAmount)}{p.shipping > 0 ? `・運費 ${formatMoney(p.shipping)}` : ""}
+              商品 {fmtMoney(p.itemAmount)}{p.shipping > 0 ? `・運費 ${fmtMoney(p.shipping)}` : ""}
             </p>
             {/* 明細品項：這張單裡有什麼 */}
             {p.items.length > 0 && (
@@ -58,7 +59,7 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                       {it.qty > 1 && <span className="text-stone-400"> ×{it.qty}</span>}
                       <span className="ml-1 text-stone-400">{it.ownerId === null ? "共同" : who2(it.ownerId)}</span>
                     </span>
-                    <span className="tnum shrink-0 text-stone-700">{formatMoney(it.total)}</span>
+                    <span className="tnum shrink-0 text-stone-700">{fmtMoney(it.total)}</span>
                   </div>
                 ))}
               </div>
@@ -67,14 +68,14 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
             <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
               <div>
                 <p className="text-xs text-stone-500">已付</p>
-                <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="preorder-paid">{formatMoney(p.money.paid)}</p>
+                <p className="amount mt-0.5 text-[17px] text-stone-800" data-testid="preorder-paid">{fmtMoney(p.money.paid)}</p>
               </div>
               <div className="text-right">
                 <p className="text-xs text-stone-500">待結</p>
-                <p className="amount mt-0.5 text-[17px] text-brand-700" data-testid="preorder-remaining">{formatMoney(p.money.remaining)}</p>
+                <p className="amount mt-0.5 text-[17px] text-brand-700" data-testid="preorder-remaining">{fmtMoney(p.money.remaining)}</p>
               </div>
             </div>
-            {p.money.overpaid > 0 && <p className="mt-2 text-xs text-amber-700">付款比應付總額多了 {formatMoney(p.money.overpaid)}，可以檢查看看是不是多記了一筆。</p>}
+            {p.money.overpaid > 0 && <p className="mt-2 text-xs text-amber-700">付款比應付總額多了 {fmtMoney(p.money.overpaid)}，可以檢查看看是不是多記了一筆。</p>}
 
             {/* 每個人還需付多少：應負擔由「誰的」決定，已負擔是每筆付款的分帳結果加總 */}
             {p.shares.length > 0 && (
@@ -87,8 +88,8 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                   <div key={sh.userId} className="flex items-baseline justify-between" data-share={sh.userId}>
                     <span className="text-stone-700">{who2(sh.userId)}</span>
                     <span className="tnum text-stone-700">
-                      <span className="font-semibold text-stone-900">{formatMoney(sh.remaining)}</span>
-                      <span className="ml-1 text-[11px] text-stone-400">（應負擔 {formatMoney(sh.due)}・已負擔 {formatMoney(sh.borne)}）</span>
+                      <span className="font-semibold text-stone-900">{fmtMoney(sh.remaining)}</span>
+                      <span className="ml-1 text-[11px] text-stone-400">（應負擔 {fmtMoney(sh.due)}・已負擔 {fmtMoney(sh.borne)}）</span>
                     </span>
                   </div>
                 ))}
@@ -106,8 +107,8 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
           </Card>
         ) : p.state === "SETTLED" ? (
           <Card className="mt-3 text-sm text-stone-600">
-            這張預購已經付清（應付 {formatMoney(p.money.total)}、已付 {formatMoney(p.money.paid)}），不用再記錄付款。
-            {p.money.overpaid > 0 && `目前多付了 ${formatMoney(p.money.overpaid)}，如果實際會收到退款，請到下面的付款紀錄走退款。`}
+            這張預購已經付清（應付 {fmtMoney(p.money.total)}、已付 {fmtMoney(p.money.paid)}），不用再記錄付款。
+            {p.money.overpaid > 0 && `目前多付了 ${fmtMoney(p.money.overpaid)}，如果實際會收到退款，請到下面的付款紀錄走退款。`}
             {p.money.overpaid === 0 && "如果之後總額有變（加購、改價），先在下面改預購金額，就會重新開放付款。"}
           </Card>
         ) : ctx.canWrite && payable.length > 0 ? (
@@ -142,10 +143,10 @@ export default async function PreorderDetailPage({ params }: PageProps<"/preorde
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-stone-800">{t.title || "預購付款"}</p>
                   <p className="truncate text-xs text-stone-500">
-                    {dateHeading(t.occurredOn)}{t.refunded > 0 ? `・已退款 ${formatMoney(t.refunded)}` : ""}
+                    {dateHeading(t.occurredOn)}{t.refunded > 0 ? `・已退款 ${fmtMoney(t.refunded)}` : ""}
                   </p>
                 </div>
-                <span className="tnum shrink-0 text-sm text-stone-800">−{formatMoney(t.amount)}</span>
+                <span className="tnum shrink-0 text-sm text-stone-800">−{fmtMoney(t.amount)}</span>
               </Link>
             ))
           )}

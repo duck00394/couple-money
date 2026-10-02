@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { createBudgetAction, deleteBudgetAction, toggleBudgetAction, updateBudgetAction } from "@/app/actions/budgets";
 import { BUDGET_STATE_LABEL, type BudgetState } from "@/server/domain/budget";
-import { formatMoney, toInputString } from "@/lib/money";
+import { toInputString } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { ArtTile } from "./ArtIcon";
 import { Button, cx, ErrorText, Field, Input, Select } from "./ui";
@@ -51,6 +52,7 @@ function ProgressLine({
   testIdPrefix?: string;
   dim?: boolean;
 }) {
+  const fmtMoney = useMoney();
   const tone = TONE[progress.state];
   const t = (name: string) => (testIdPrefix ? `${testIdPrefix}-${name}` : undefined);
   return (
@@ -58,8 +60,8 @@ function ProgressLine({
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span className="shrink-0 text-stone-500">{label}</span>
         <span className="tnum min-w-0 flex-1 truncate text-right text-stone-500">
-          <span className={cx("font-semibold", tone.text)} data-testid={t("spent")}>{formatMoney(progress.spent)}</span>
-          <span className="text-stone-400"> / {formatMoney(progress.amount)}</span>
+          <span className={cx("font-semibold", tone.text)} data-testid={t("spent")}>{fmtMoney(progress.spent)}</span>
+          <span className="text-stone-400"> / {fmtMoney(progress.amount)}</span>
         </span>
       </div>
       <div
@@ -76,7 +78,7 @@ function ProgressLine({
         />
       </div>
       <p className="tnum mt-1 text-[11px] text-stone-400" data-testid={t("remaining")}>
-        {progress.over > 0 ? `超支 ${formatMoney(progress.over)}` : `剩餘 ${formatMoney(progress.remaining)}`}
+        {progress.over > 0 ? `超支 ${fmtMoney(progress.over)}` : `剩餘 ${fmtMoney(progress.remaining)}`}
       </p>
     </div>
   );

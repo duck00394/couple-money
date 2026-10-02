@@ -1,7 +1,7 @@
 "use client";
 
-import { formatMoney } from "@/lib/money";
 import { useDemo } from "@/demo/store";
+import { useMoney } from "./CurrencyContext";
 import type { TaskCardView } from "@/demo/select";
 import { ArtTile } from "./ArtIcon";
 import { cx } from "./ui";
@@ -16,6 +16,7 @@ import { cx } from "./ui";
  * store 的版本，視覺元件（ArtTile、字級、顏色）仍然沿用同一套。
  */
 export function DemoTaskRow({ card, nickname }: { card: TaskCardView; nickname: string }) {
+  const fmtMoney = useMoney();
   const { run, todayKey } = useDemo();
   const done = card.doneToday;
 
@@ -26,10 +27,10 @@ export function DemoTaskRow({ card, nickname }: { card: TaskCardView; nickname: 
         <p className="truncate text-[15px] font-medium leading-snug text-stone-800">{card.name}</p>
         <p className="truncate text-xs leading-snug text-stone-500">
           {nickname}・{card.scheduleText}
-          {card.rewardAmount > 0 && `・${formatMoney(card.rewardAmount)}`}
+          {card.rewardAmount > 0 && `・${fmtMoney(card.rewardAmount)}`}
         </p>
         {card.earned > 0 && (
-          <p className="mt-0.5 truncate text-[11px] text-brand-600">累積賺到 {formatMoney(card.earned)}</p>
+          <p className="mt-0.5 truncate text-[11px] text-brand-600">累積賺到 {fmtMoney(card.earned)}</p>
         )}
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import Link from "next/link";
 import {
   addFromTransactionAction, addKeywordAction, addManualAction, convertToManualAction,
@@ -8,7 +9,7 @@ import {
   deleteKeywordAction, deleteTagAction, removeEntryAction, renameCategoryAction, renameTagAction,
   seedStarterAction, updateEntryAction, updateGroupAction,
 } from "@/app/actions/purchases";
-import { formatMoney, toInputString } from "@/lib/money";
+import { toInputString } from "@/lib/money";
 import { JOINT } from "@/server/domain/purchase";
 import type { ActionState } from "@/server/actions";
 import { ActionForm } from "./ActionForm";
@@ -383,6 +384,7 @@ export function AddFromTransactionForm({
   /** 關鍵字猜到的作品、商品分類與角色（這三個只是建議，歸屬永遠不猜） */
   detected?: { groupId: string; categoryId: string | null; tagId: string; word: string } | null;
 }) {
+  const fmtMoney = useMoney();
   const [state, action, pending] = useActionState(addFromTransactionAction, undefined);
   const [groupId, setGroupId] = useState(fixedGroupId ?? detected?.groupId ?? groups[0]?.id ?? "");
   const group = groups.find((g) => g.id === groupId);
@@ -409,7 +411,7 @@ export function AddFromTransactionForm({
           <p className="truncate font-semibold">{transaction.title}</p>
           <p className="mt-0.5 text-xs text-stone-500">{transaction.occurredOn.replaceAll("-", "/")}</p>
         </div>
-        <span className="amount text-[15px]">{formatMoney(transaction.amount)}</span>
+        <span className="amount text-[15px]">{fmtMoney(transaction.amount)}</span>
       </Card>
       <p className="-mt-2 px-1 text-xs leading-relaxed text-stone-500">
         金額與日期沿用這筆記帳，不用重新輸入。
@@ -540,6 +542,7 @@ export function EditEntryForm({
   members: MemberOption[];
   returnTo?: string;
 }) {
+  const fmtMoney = useMoney();
   const [state, action, pending] = useActionState(updateEntryAction, undefined);
   const [del, delAction, delPending] = useActionState(removeEntryAction, undefined);
   const [confirming, setConfirming] = useState(false);
@@ -570,7 +573,7 @@ export function EditEntryForm({
               這裡是灰色的、不能改。如需修改，請回原記帳。購買紀錄不會、也不該蓋掉財務資料。
             </p>
             <div className="space-y-2">
-              {([["品項名稱", entry.title], ["購買日期", entry.occurredOn.replaceAll("-", "/")], ["金額", formatMoney(entry.amount)]] as const).map(
+              {([["品項名稱", entry.title], ["購買日期", entry.occurredOn.replaceAll("-", "/")], ["金額", fmtMoney(entry.amount)]] as const).map(
                 ([label, value]) => (
                   <div key={label} className="flex items-center justify-between gap-3 rounded-xl border border-stone-300 bg-stone-100 px-3.5 py-2.5">
                     <span className="text-sm font-medium text-stone-600">{label}</span>

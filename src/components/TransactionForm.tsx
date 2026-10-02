@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { deleteTransactionAction, saveTransactionAction } from "@/app/actions/transactions";
-import { formatMoney, parseAmount, toInputString } from "@/lib/money";
+import { parseAmount, toInputString } from "@/lib/money";
 import { CURRENCIES, currencyOf, formatCurrency, minorPerUnit, parseCurrencyAmount } from "@/lib/currency";
 import { toBaseAmount } from "@/server/domain/exchange";
 import { initialCalc, isPending, press, type CalcState } from "@/lib/calc";
@@ -109,6 +110,7 @@ export function TransactionForm(props: {
     categories: Array<{ id: string; name: string; isDefault: boolean }>;
   }>;
 }) {
+  const fmtMoney = useMoney();
   const { me, partner, accounts, categories, today, initial } = props;
   const members = partner ? [me, partner] : [me];
   const [clientRequestId, setClientRequestId] = useState(() => crypto.randomUUID());
@@ -298,7 +300,7 @@ export function TransactionForm(props: {
     const other = payer === me.userId ? partner : me;
     const owe = shareOf(other.userId);
     if (owe === 0) return "這筆不會產生欠款";
-    return payer === me.userId ? `${partner.nickname} 要還你 ${formatMoney(owe)}` : `你要還 ${partner.nickname} ${formatMoney(owe)}`;
+    return payer === me.userId ? `${partner.nickname} 要還你 ${fmtMoney(owe)}` : `你要還 ${partner.nickname} ${fmtMoney(owe)}`;
   })();
 
   const cats = categories.filter((c) => c.kind === type);
@@ -388,7 +390,7 @@ export function TransactionForm(props: {
           {isForeign && (
             <div className="mt-1.5 flex items-baseline justify-between gap-2 border-t border-line pt-1.5">
               <span className="amount text-[17px] text-stone-700" data-testid="tx-converted">
-                ≈ {amount !== null ? formatMoney(amount) : formatMoney(0)}
+                ≈ {amount !== null ? fmtMoney(amount) : fmtMoney(0)}
               </span>
               <span className="truncate text-[11px] text-stone-400">
                 {rateUnits.toLocaleString("en-US")} {currency} ={" "}
@@ -564,7 +566,7 @@ export function TransactionForm(props: {
                 <option value="">不算在預購</option>
                 {props.preorders!.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}（待付 {formatMoney(p.remaining)}）{p.state !== "ACTIVE" ? "・已結清" : ""}
+                    {p.name}（待付 {fmtMoney(p.remaining)}）{p.state !== "ACTIVE" ? "・已結清" : ""}
                   </option>
                 ))}
               </select>
@@ -588,21 +590,21 @@ export function TransactionForm(props: {
                 <div className="mt-2 space-y-2 rounded-2xl bg-white p-3 text-xs shadow-sm" data-testid="preorder-hint-form">
                   <div className="flex items-baseline justify-between">
                     <span className="text-stone-500">應付總額</span>
-                    <span className="tnum font-semibold text-stone-800">{formatMoney(po.total)}</span>
+                    <span className="tnum font-semibold text-stone-800">{fmtMoney(po.total)}</span>
                   </div>
                   <div className="flex items-baseline justify-between border-t border-line pt-2">
                     <span className="text-stone-500">目前已付</span>
-                    <span className="tnum text-stone-700" data-testid="preorder-paid-now">{formatMoney(Math.max(0, paidBase))}</span>
+                    <span className="tnum text-stone-700" data-testid="preorder-paid-now">{fmtMoney(Math.max(0, paidBase))}</span>
                   </div>
                   <div className="flex items-baseline justify-between">
                     <span className="text-stone-500">記下這筆之後・已付</span>
-                    <span className="tnum font-semibold text-stone-800" data-testid="preorder-paid-after">{formatMoney(paidAfter)}</span>
+                    <span className="tnum font-semibold text-stone-800" data-testid="preorder-paid-after">{fmtMoney(paidAfter)}</span>
                   </div>
                   <div className="flex items-baseline justify-between">
                     <span className="text-stone-500">記下這筆之後・待付</span>
-                    <span className="tnum font-semibold text-brand-700" data-testid="preorder-remaining-after">{formatMoney(remainingAfter)}</span>
+                    <span className="tnum font-semibold text-brand-700" data-testid="preorder-remaining-after">{fmtMoney(remainingAfter)}</span>
                   </div>
-                  {over > 0 && <p className="text-amber-700">會比應付總額多 {formatMoney(over)}，確認一下是不是多記了一筆。</p>}
+                  {over > 0 && <p className="text-amber-700">會比應付總額多 {fmtMoney(over)}，確認一下是不是多記了一筆。</p>}
                   <div className="space-y-1 border-t border-line pt-2" data-testid="preorder-shares">
                     <p className="text-stone-500">記下這筆之後，每個人還需付</p>
                     {members.map((m) => {
@@ -614,8 +616,8 @@ export function TransactionForm(props: {
                         <div key={m.userId} className="flex items-baseline justify-between" data-share={m.userId}>
                           <span className="text-stone-600">{m.userId === me.userId ? "我" : m.nickname}</span>
                           <span className="tnum text-stone-700">
-                            還需付 <span className="font-semibold text-stone-900">{formatMoney(left)}</span>
-                            <span className="ml-1 text-stone-400">（應負擔 {formatMoney(due)}・已負擔 {formatMoney(borneAfter)}）</span>
+                            還需付 <span className="font-semibold text-stone-900">{fmtMoney(left)}</span>
+                            <span className="ml-1 text-stone-400">（應負擔 {fmtMoney(due)}・已負擔 {fmtMoney(borneAfter)}）</span>
                           </span>
                         </div>
                       );
@@ -637,7 +639,7 @@ export function TransactionForm(props: {
               <select aria-label="從基金扣" value={fundId} onChange={(e) => { setFundId(e.target.value); setFundAccountId(""); }} className={cx(inputClass, "appearance-none")}>
                 <option value="">不從基金扣</option>
                 {props.funds!.filter((f) => !f.isArchived || f.id === initial?.fundId).map((f) => (
-                  <option key={f.id} value={f.id}>{f.name}（剩 {formatMoney(f.balance)}）</option>
+                  <option key={f.id} value={f.id}>{f.name}（剩 {fmtMoney(f.balance)}）</option>
                 ))}
               </select>
             </Field>
@@ -664,8 +666,8 @@ export function TransactionForm(props: {
                 <div className="mt-2 space-y-2 rounded-2xl bg-white p-3 text-xs shadow-sm" data-testid="fund-hint">
                   <p className="font-semibold text-stone-700">這筆會怎麼記？（不會扣兩次）</p>
                   <ul className="space-y-1 text-stone-600">
-                    <li><b>實際付款</b>：「{accName(accountId)}」扣 {formatMoney(need)}，帳戶只扣這一次</li>
-                    <li><b>基金用途</b>：「{f?.name}」實際金額 −{formatMoney(need)}（動用「{accName(used) || "—"}」裡指定給基金的額度，那個帳戶的錢不會再扣一次）</li>
+                    <li><b>實際付款</b>：「{accName(accountId)}」扣 {fmtMoney(need)}，帳戶只扣這一次</li>
+                    <li><b>基金用途</b>：「{f?.name}」實際金額 −{fmtMoney(need)}（動用「{accName(used) || "—"}」裡指定給基金的額度，那個帳戶的錢不會再扣一次）</li>
                     <li><b>分帳</b>：{account?.ownerId === null ? "共同帳戶付款，不產生欠款" : "照下方設定計算，另一半應負擔的部分會算成欠款"}</li>
                   </ul>
                   <label className="block">
@@ -674,12 +676,12 @@ export function TransactionForm(props: {
                       <option value="">請選擇</option>
                       {sources.map(([id, v]) => (
                         <option key={id} value={id} disabled={need > v}>
-                          {accName(id)}（額度 {formatMoney(v)}{id === account?.id ? "・付款帳戶" : ""}{need > v ? "・不夠" : ""}）
+                          {accName(id)}（額度 {fmtMoney(v)}{id === account?.id ? "・付款帳戶" : ""}{need > v ? "・不夠" : ""}）
                         </option>
                       ))}
                     </select>
                   </label>
-                  {need > available && <p className="text-red-600">基金實際金額只有 {formatMoney(available)}，不夠這筆支出（尚未入金的獎金不能拿來付款）。</p>}
+                  {need > available && <p className="text-red-600">基金實際金額只有 {fmtMoney(available)}，不夠這筆支出（尚未入金的獎金不能拿來付款）。</p>}
                   {need <= available && !used && <p className="text-amber-700">請選擇要動用哪個帳戶裡指定給這個基金的額度。</p>}
                   {account && account.ownerId !== null && partner && (
                     <p className="rounded-lg bg-amber-50 px-2 py-1.5 text-amber-800" data-testid="fund-personal-warning">
@@ -753,7 +755,7 @@ export function TransactionForm(props: {
                       placeholder="0"
                     />
                   </label>
-                  <span>{partner.nickname} {formatMoney(Math.max(0, (amount ?? 0) - (parseAmount(myAmountStr) ?? 0)))}</span>
+                  <span>{partner.nickname} {fmtMoney(Math.max(0, (amount ?? 0) - (parseAmount(myAmountStr) ?? 0)))}</span>
                 </div>
               )}
               {method === "FULL" && (
@@ -778,7 +780,7 @@ export function TransactionForm(props: {
                 {members.map((m) => (
                   <div key={m.userId} className="flex justify-between">
                     <span className="text-stone-500">{m.userId === me.userId ? "我" : m.nickname}負擔</span>
-                    <span className="tnum font-medium">{formatMoney(shareOf(m.userId))}</span>
+                    <span className="tnum font-medium">{fmtMoney(shareOf(m.userId))}</span>
                   </div>
                 ))}
                 {effect && <p className="pt-1 font-semibold text-brand-700" data-testid="split-effect">{effect}</p>}

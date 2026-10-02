@@ -2,7 +2,7 @@ import Link from "next/link";
 import { FundRow, GoalRow } from "@/components/GoalCard";
 import { MoneyConcepts } from "@/components/MoneyConcepts";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listFunds } from "@/server/services/funds";
 import { listGoals } from "@/server/services/goals";
@@ -15,6 +15,7 @@ import { listGoals } from "@/server/services/goals";
  */
 export default async function FundsPage({ searchParams }: PageProps<"/funds">) {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const sp = await searchParams;
   const showAll = sp.all === "1";
   const [funds, goals] = await Promise.all([
@@ -40,7 +41,7 @@ export default async function FundsPage({ searchParams }: PageProps<"/funds">) {
       <div className="px-4">
         <Card className="px-5 py-5">
           <p className="text-[13px] text-stone-500">目前存在基金裡的錢</p>
-          <p className="amount-lg mt-1 text-[2.2rem] text-stone-800" data-testid="fund-total">{formatMoney(total)}</p>
+          <p className="amount-lg mt-1 text-[2.2rem] text-stone-800" data-testid="fund-total">{fmtMoney(total)}</p>
           <p className="mt-1 text-xs text-stone-500">共 {active.length} 個基金・錢還在帳戶裡，只是指定了用途</p>
         </Card>
 
@@ -51,7 +52,7 @@ export default async function FundsPage({ searchParams }: PageProps<"/funds">) {
               基金是「這筆錢要拿來做什麼」，例如旅遊、租屋、生日
             </Empty>
           ) : (
-            funds.map((f) => <FundRow key={f.id} fund={f} />)
+            funds.map((f) => <FundRow currency={ctx.book.baseCurrency} key={f.id} fund={f} />)
           )}
         </Card>
 
@@ -62,7 +63,7 @@ export default async function FundsPage({ searchParams }: PageProps<"/funds">) {
               還沒有進行中的目標
             </Empty>
           ) : (
-            inProgress.slice(0, 3).map((g) => <GoalRow key={g.id} goal={g} />)
+            inProgress.slice(0, 3).map((g) => <GoalRow currency={ctx.book.baseCurrency} key={g.id} goal={g} />)
           )}
         </Card>
 

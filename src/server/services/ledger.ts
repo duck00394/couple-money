@@ -166,7 +166,7 @@ export async function adjustAccountBalance(ctx: BookContext, input: AdjustBalanc
       // 在交易內重讀目前餘額：兩支手機同時調整時，第二筆會用到第一筆之後的餘額
       const { balance } = await accountFreeAmount(tx, ctx.book.id, account.id);
       const delta = input.targetBalance - balance;
-      assert(delta !== 0, "ADJUST_SAME", `「${account.name}」目前就是 ${formatMoney(balance)}，不需要調整`);
+      assert(delta !== 0, "ADJUST_SAME", `「${account.name}」目前就是 ${formatMoney(balance, { currency: ctx.book.baseCurrency })}，不需要調整`);
       const lines = buildBalanceLines("ADJUSTMENT", delta, { id: account.id, ownerId: account.ownerId });
       const created = await tx.transaction.create({
         data: {
@@ -435,16 +435,16 @@ export async function updateTransaction(
     // 已經有退款的消費：金額不能改到比已退款金額還少，也不能改成收入（退款是獨立紀錄，要能對得回來）
     const refunded = before.type === "EXPENSE" ? await refundedAmount(tx, ctx.book.id, id) : 0;
     if (refunded > 0) {
-      assert(input.type === "EXPENSE", "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，不能改成收入`);
+      assert(input.type === "EXPENSE", "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded, { currency: ctx.book.baseCurrency })}，不能改成收入`);
       // 本國消費在這裡就擋掉，錯誤訊息才會是「金額不能改成比它少」而不是分帳規則對不上。
       // （外幣的 input.amount 是前端算的，不能當準，所以下面換算完還會再確認一次。）
-      assert(input.amount >= refunded, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，金額不能改成比它少`);
+      assert(input.amount >= refunded, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded, { currency: ctx.book.baseCurrency })}，金額不能改成比它少`);
     }
     await assertPreorder(tx, ctx, input.preorderId);
     const { occurredAt, lines, money } = await validateInput(tx, ctx, { ...input, clientRequestId: before.clientRequestId }, before.categoryId);
     // 換算後再確認一次：外幣交易真正寫進去的是 money.amount，前端送來的數字不算數。
     if (refunded > 0) {
-      assert(money.amount >= refunded, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，金額不能改成比它少`);
+      assert(money.amount >= refunded, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded, { currency: ctx.book.baseCurrency })}，金額不能改成比它少`);
     }
     await tx.transactionPayment.deleteMany({ where: { transactionId: id } });
     await tx.transactionSplit.deleteMany({ where: { transactionId: id } });
@@ -519,7 +519,7 @@ export async function deleteTransactionIn(tx: Tx, ctx: BookContext, id: string) 
     assert(!(before.type === "TRANSFER" && before.sourceType === "REWARD_DEPOSIT"), "TX_REWARD_DEPOSIT", "任務獎金入金請到基金頁取消");
     if (before.type === "EXPENSE") {
       const refunded = await refundedAmount(tx, ctx.book.id, id);
-      assert(refunded === 0, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，請先刪除退款紀錄再刪除消費`);
+      assert(refunded === 0, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded, { currency: ctx.book.baseCurrency })}，請先刪除退款紀錄再刪除消費`);
     }
     const deleted = await tx.transaction.update({ where: { id }, data: { deletedAt: new Date(), deletedById: ctx.me.userId } });
     // 「任務獎勵提列」的收入被作廢 = 那次提列整個復原：
@@ -635,7 +635,7 @@ export async function settle(
       const net = netPositions(ledger, ctx.members.map((m) => m.userId));
       const max = maxSettleAmount(net, input.fromUserId, input.toUserId);
       assert(max > 0, "SETTLE_NOTHING", "目前沒有需要結算的欠款");
-      assert(input.amount <= max, "SETTLE_TOO_MUCH", `結算金額不能超過目前欠款 ${formatMoney(max)}`);
+      assert(input.amount <= max, "SETTLE_TOO_MUCH", `結算金額不能超過目前欠款 ${formatMoney(max, { currency: ctx.book.baseCurrency })}`);
 
       const [fromAcc, toAcc] = await Promise.all([
         tx.account.findFirst({ where: { id: input.fromAccountId, bookId: ctx.book.id, deletedAt: null } }),

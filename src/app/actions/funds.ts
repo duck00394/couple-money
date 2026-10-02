@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAppContext } from "@/server/context";
-import { formatMoney, parseAmount } from "@/lib/money";
+import { moneyFmt, parseAmount } from "@/lib/money";
 import { toDateKey } from "@/lib/dates";
 import { DomainError } from "@/server/domain/errors";
 import { accountFreeAmount, addFundEntry, cancelFundEntry, cancelRewardDeposit, createFund, depositRewards, updateFund, type FundInput } from "@/server/services/funds";
@@ -32,6 +32,7 @@ export async function saveFundAction(_: ActionState, form: FormData): Promise<Ac
   let fundId = id;
   const state = await toActionState(async () => {
     const { ctx } = await getAppContext();
+    const fmtMoney = moneyFmt(ctx.book.baseCurrency);
     if (id) {
       await updateFund(ctx, id, { ...parseFund(form), isArchived: str(form, "isArchived") === "true" }, str(form, "expectedUpdatedAt") || null);
       return { ok: "已儲存" };
@@ -51,7 +52,7 @@ export async function saveFundAction(_: ActionState, form: FormData): Promise<Ac
       if (amount > free) {
         throw new DomainError(
           "FUND_OVER_FREE",
-          `「${acc.name}」可自由使用的金額只剩 ${formatMoney(Math.max(0, free))}，不能當作 ${formatMoney(amount)} 的初始金額`,
+          `「${acc.name}」可自由使用的金額只剩 ${fmtMoney(Math.max(0, free))}，不能當作 ${fmtMoney(amount)} 的初始金額`,
         );
       }
     }
@@ -107,6 +108,7 @@ export async function cancelFundEntryAction(_: ActionState, form: FormData): Pro
 export async function depositRewardsAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
     const { ctx } = await getAppContext();
+    const fmtMoney = moneyFmt(ctx.book.baseCurrency);
     const e = await depositRewards(ctx, {
       fundId: str(form, "fundId"),
       targetAccountId: str(form, "targetAccountId"),
@@ -115,7 +117,7 @@ export async function depositRewardsAction(_: ActionState, form: FormData): Prom
       occurredOn: str(form, "occurredOn"),
       clientRequestId: str(form, "clientRequestId"),
     });
-    return { ok: `已入金 ${formatMoney(e.amount)}，基金實際金額已增加` };
+    return { ok: `已入金 ${fmtMoney(e.amount)}，基金實際金額已增加` };
   });
   revalidatePath("/", "layout");
   return state;

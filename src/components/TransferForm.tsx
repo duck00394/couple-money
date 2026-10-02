@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { createTransferAction } from "@/app/actions/transfers";
-import { formatMoney, parseAmount } from "@/lib/money";
+import { parseAmount } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { ArtIcon } from "./ArtIcon";
 import { Button, Card, ErrorText, Field, Input, Select, cx, inputClass } from "./ui";
@@ -21,6 +22,7 @@ export interface TransferAccountOption {
 
 /** 帳戶間轉帳：來源 −金額、目的 +金額，不算收支、不影響誰欠誰。 */
 export function TransferForm({ accounts, today, now }: { accounts: TransferAccountOption[]; today: string; now: string }) {
+  const fmtMoney = useMoney();
   const sources = accounts.filter((a) => !a.isCard);
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [fromId, setFromId] = useState(sources[0]?.id ?? "");
@@ -43,7 +45,7 @@ export function TransferForm({ accounts, today, now }: { accounts: TransferAccou
       <input type="hidden" name="clientRequestId" value={requestId} />
 
       <Card className="space-y-3">
-        <Field label="從哪個帳戶轉出" hint={from ? `餘額 ${formatMoney(from.balance)}${from.earmarked > 0 ? `・已指定給基金 ${formatMoney(from.earmarked)}` : ""}・可自由使用 ${formatMoney(from.free)}` : "還沒有可以轉出的帳戶"}>
+        <Field label="從哪個帳戶轉出" hint={from ? `餘額 ${fmtMoney(from.balance)}${from.earmarked > 0 ? `・已指定給基金 ${fmtMoney(from.earmarked)}` : ""}・可自由使用 ${fmtMoney(from.free)}` : "還沒有可以轉出的帳戶"}>
           <Select name="fromAccountId" aria-label="轉出帳戶" value={fromId} onChange={(e) => setFromId(e.target.value)}>
             {sources.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </Select>
@@ -72,8 +74,8 @@ export function TransferForm({ accounts, today, now }: { accounts: TransferAccou
         </Field>
         {overFree && from && (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            「{from.name}」可自由使用只剩 {formatMoney(Math.max(0, from.free))}
-            {from.earmarked > 0 && `（餘額 ${formatMoney(from.balance)} 之中有 ${formatMoney(from.earmarked)} 已指定給基金）`}，不夠轉出。
+            「{from.name}」可自由使用只剩 {fmtMoney(Math.max(0, from.free))}
+            {from.earmarked > 0 && `（餘額 ${fmtMoney(from.balance)} 之中有 ${fmtMoney(from.earmarked)} 已指定給基金）`}，不夠轉出。
           </p>
         )}
         <div className="grid grid-cols-2 gap-3">

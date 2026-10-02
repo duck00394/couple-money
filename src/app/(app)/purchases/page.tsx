@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArtIcon } from "@/components/ArtIcon";
 import { SeedStarterButton } from "@/components/PurchaseForms";
 import { Avatar, Card, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getMainBookContext } from "@/server/context";
 import { MainBookNotice } from "@/components/BookForms2";
 import { listGroups } from "@/server/services/purchases";
@@ -15,6 +15,7 @@ import { listGroups } from "@/server/services/purchases";
  */
 export default async function PurchasesPage() {
   const { ctx, isForeignContext, activeBookName } = await getMainBookContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const groups = await listGroups(ctx);
   const all = groups.reduce((a, g) => ({ count: a.count + g.totals.count, amount: a.amount + g.totals.amount }), { count: 0, amount: 0 });
   const nameOf = (id: string | null) => (id === null ? "共同" : ctx.members.find((m) => m.userId === id)?.nickname ?? "?");
@@ -57,7 +58,7 @@ export default async function PurchasesPage() {
             <Card className="flex items-baseline gap-3">
               <div className="flex-1">
                 <p className="text-xs font-semibold text-stone-500">我們總共買了</p>
-                <p className="amount-lg mt-1 text-[30px]">{formatMoney(all.amount)}</p>
+                <p className="amount-lg mt-1 text-[30px]">{fmtMoney(all.amount)}</p>
               </div>
               <div className="text-right">
                 <p className="tnum text-base font-bold">{all.count} 件</p>
@@ -85,7 +86,7 @@ export default async function PurchasesPage() {
                       </span>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="amount text-[17px]">{formatMoney(g.totals.amount)}</p>
+                      <p className="amount text-[17px]">{fmtMoney(g.totals.amount)}</p>
                       <p className="mt-0.5 text-[11px] text-stone-500">{g.totals.count} 件</p>
                     </div>
                     <span className="text-lg text-stone-400">›</span>

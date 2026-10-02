@@ -94,6 +94,15 @@ model Book {
   startOn          DateTime?  @db.Date
   endOn            DateTime?  @db.Date
   note             String?
+  /// V16：這本帳本的本位幣換回「家裡的錢」（台幣）的匯率，直接存在帳本上。
+  ///
+  ///   homeRateUnits = 100、homeRateMinor = 2150 就是「100 JPY = 21.5 TWD」。
+  ///
+  /// 只用來在金額旁邊附一行「≈ NT$」給人參考 —— **帳務計算完全不碰它**，
+  /// 所以之後改這個匯率不會動到任何一筆交易的金額。
+  /// 本位幣就是 TWD 的帳本不需要它（兩個欄位留 null）。
+  homeRateUnits    Int?
+  homeRateMinor    Int?
   defaultSplitRule Json? // SplitRule；null = 全員平均
   createdById      String
   createdAt        DateTime   @default(now())

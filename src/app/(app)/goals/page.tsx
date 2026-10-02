@@ -2,7 +2,7 @@ import Link from "next/link";
 import { FundRow, GoalRow } from "@/components/GoalCard";
 import { MoneyConcepts } from "@/components/MoneyConcepts";
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listFunds } from "@/server/services/funds";
 import { listGoals } from "@/server/services/goals";
@@ -12,6 +12,7 @@ import { GoalBoard } from "@/components/GoalBoard";
 
 export default async function GoalsPage({ searchParams }: PageProps<"/goals">) {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const sp = await searchParams;
   const showAll = sp.all === "1";
   const [goals, funds, requests, allGoals, allFunds] = await Promise.all([
@@ -46,25 +47,25 @@ export default async function GoalsPage({ searchParams }: PageProps<"/goals">) {
             </div>
           </>
         )}
-        <GoalBoard goals={inProgress} mascot="/assets/shisa.png" empty="還沒有進行中的目標" />
+        <GoalBoard currency={ctx.book.baseCurrency} goals={inProgress} mascot="/assets/shisa.png" empty="還沒有進行中的目標" />
 
         <SectionTitle>目標明細</SectionTitle>
         <Card className="divide-y divide-line p-0">
-          {inProgress.length === 0 ? <Empty>還沒有進行中的目標，<Link href="/goals/new" className="font-semibold text-brand-600">建立一個</Link></Empty> : inProgress.map((g) => <GoalRow key={g.id} goal={g} />)}
+          {inProgress.length === 0 ? <Empty>還沒有進行中的目標，<Link href="/goals/new" className="font-semibold text-brand-600">建立一個</Link></Empty> : inProgress.map((g) => <GoalRow currency={ctx.book.baseCurrency} key={g.id} goal={g} />)}
         </Card>
 
         {done.length > 0 && (
           <>
             <SectionTitle>已完成</SectionTitle>
-            <Card className="divide-y divide-line p-0">{done.map((g) => <GoalRow key={g.id} goal={g} />)}</Card>
+            <Card className="divide-y divide-line p-0">{done.map((g) => <GoalRow currency={ctx.book.baseCurrency} key={g.id} goal={g} />)}</Card>
           </>
         )}
 
         <SectionTitle right={<Link href="/funds/new" className="text-sm font-semibold text-brand-600">＋ 基金</Link>}>
-          共同基金・{formatMoney(fundTotal)}
+          共同基金・{fmtMoney(fundTotal)}
         </SectionTitle>
         <Card className="divide-y divide-line p-0">
-          {funds.length === 0 ? <Empty>基金是「這筆錢要拿來做什麼」，例如旅遊、租屋、生日</Empty> : funds.map((f) => <FundRow key={f.id} fund={f} />)}
+          {funds.length === 0 ? <Empty>基金是「這筆錢要拿來做什麼」，例如旅遊、租屋、生日</Empty> : funds.map((f) => <FundRow currency={ctx.book.baseCurrency} key={f.id} fund={f} />)}
         </Card>
 
         <div className="mt-4"><MoneyConcepts /></div>

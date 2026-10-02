@@ -222,7 +222,7 @@ export async function withdrawRewards(ctx: BookContext, input: WithdrawInput) {
       const deduction = sum(penalties, (p) => p.amount);
       const net = gross - deduction;
       assert(gross > 0, "REWARD_NOTHING", "目前沒有可以提列的獎勵");
-      assert(net > 0, "REWARD_NET_NEGATIVE", `懲罰（${formatMoney(deduction)}）比獎勵（${formatMoney(gross)}）多，目前不能提列`);
+      assert(net > 0, "REWARD_NET_NEGATIVE", `懲罰（${formatMoney(deduction, { currency: ctx.book.baseCurrency })}）比獎勵（${formatMoney(gross, { currency: ctx.book.baseCurrency })}）多，目前不能提列`);
 
       const created = await createTransactionIn(tx, ctx, {
         type: "INCOME",
@@ -230,7 +230,7 @@ export async function withdrawRewards(ctx: BookContext, input: WithdrawInput) {
         accountId: account.id,
         categoryId: null,
         title: "任務獎勵提列",
-        note: input.note?.trim() || (deduction > 0 ? `獎勵 ${formatMoney(gross)} − 懲罰 ${formatMoney(deduction)}` : ""),
+        note: input.note?.trim() || (deduction > 0 ? `獎勵 ${formatMoney(gross, { currency: ctx.book.baseCurrency })} − 懲罰 ${formatMoney(deduction, { currency: ctx.book.baseCurrency })}` : ""),
         occurredOn,
         split: { method: "FULL", participants: [{ userId }] },
         clientRequestId: input.clientRequestId,

@@ -48,10 +48,11 @@ export async function v15Books(a: Page, b: Page) {
   await a.getByTestId("book-switcher").click();
   await expect(a.getByTestId("book-menu")).toBeVisible();
   const menu1 = (await a.getByTestId("book-menu").innerText()).replace(/\s+/g, " ");
-  expect(menu1).toContain("使用中");
+  expect(menu1).toContain(MAIN_NAME);
   expect(menu1, "還沒有結案的帳本，不該出現歷史紀錄區").not.toContain("歷史紀錄");
   expect(menu1).toContain("＋ 新增帳本");
-  step("選單分「使用中」與「＋新增帳本」；沒有歷史帳本時不顯示歷史區");
+  expect(menu1, "選單不該出現 emoji").not.toMatch(/\p{Extended_Pictographic}/u);
+  step("選單列出帳本與「＋新增帳本」；沒有歷史帳本時不顯示歷史區，也沒有 emoji");
 
   // ───────── 3. 建立日本旅遊 ─────────
   await a.getByTestId("book-new-link").click();
@@ -130,6 +131,7 @@ export async function v15Books(a: Page, b: Page) {
   await a.getByTestId("book-switcher").click();
   const menu2 = (await a.getByTestId("book-menu").innerText()).replace(/\s+/g, " ");
   expect(menu2, "歷史紀錄區沒有出現").toContain("歷史紀錄");
+  expect(menu2, "選單不該出現 emoji").not.toMatch(/\p{Extended_Pictographic}/u);
   await a.getByTestId("book-menu").getByText("日本旅遊", { exact: true }).first().click();
   await expect(a.getByTestId("book-switcher")).toContainText("日本旅遊", { timeout: 15000 });
   await loaded(a);

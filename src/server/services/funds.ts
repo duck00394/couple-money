@@ -175,7 +175,7 @@ export async function assertFundDeletable(client: Client, ctx: BookContext, fund
   const fund = await client.fund.findFirst({ where: { id: fundId, bookId: ctx.book.id, deletedAt: null } });
   assert(fund, "FUND_NOT_FOUND", "找不到基金");
   const balance = await fundBalance(client, ctx.book.id, fundId);
-  assert(balance === 0, "FUND_NOT_EMPTY", `基金實際金額還有 ${formatMoney(balance)}，請先取回或改用封存`);
+  assert(balance === 0, "FUND_NOT_EMPTY", `基金實際金額還有 ${formatMoney(balance, { currency: ctx.book.baseCurrency })}，請先取回或改用封存`);
   const pending = (await pendingByFund(client, ctx.book.id, [fundId])).get(fundId);
   assert(!pending || (pending.rewards === 0 && pending.penalties === 0), "FUND_HAS_PENDING", "還有尚未入金的獎金或懲罰，請先入金或改用封存");
   const usedByTask = await client.task.count({ where: { fundId, deletedAt: null } });
@@ -307,11 +307,11 @@ export async function addFundEntry(
         assert(
           input.amount <= free,
           "FUND_OVER_FREE",
-          `「${acc.name}」可自由使用的金額只剩 ${formatMoney(Math.max(0, free))}，不能投入 ${formatMoney(input.amount)}。基金只能指定帳戶裡真的有、還沒被其他基金指定的錢。`,
+          `「${acc.name}」可自由使用的金額只剩 ${formatMoney(Math.max(0, free), { currency: ctx.book.baseCurrency })}，不能投入 ${formatMoney(input.amount, { currency: ctx.book.baseCurrency })}。基金只能指定帳戶裡真的有、還沒被其他基金指定的錢。`,
         );
       } else {
         const alloc = (await fundAllocations(tx, ctx.book.id, fund.id)).get(acc.id) ?? 0;
-        assert(input.amount <= alloc, "FUND_ALLOCATION_INSUFFICIENT", `「${acc.name}」裡指定給這個基金的只有 ${formatMoney(Math.max(0, alloc))}`);
+        assert(input.amount <= alloc, "FUND_ALLOCATION_INSUFFICIENT", `「${acc.name}」裡指定給這個基金的只有 ${formatMoney(Math.max(0, alloc), { currency: ctx.book.baseCurrency })}`);
       }
       const entry = await tx.fundTransaction.create({
         data: {
@@ -395,7 +395,7 @@ export async function depositRewards(
       ]);
       const pending = summarizePending(rewards, penalties);
       assert(pending.rewards > 0, "REWARD_NOTHING", "目前沒有尚未入金的獎金");
-      assert(pending.net > 0, "REWARD_NET_NEGATIVE", `懲罰（${formatMoney(pending.penalties)}）比獎金（${formatMoney(pending.rewards)}）多，目前不能入金`);
+      assert(pending.net > 0, "REWARD_NET_NEGATIVE", `懲罰（${formatMoney(pending.penalties, { currency: ctx.book.baseCurrency })}）比獎金（${formatMoney(pending.rewards, { currency: ctx.book.baseCurrency })}）多，目前不能入金`);
       const amount = pending.net;
       const target = await loadAccount(tx, ctx, input.targetAccountId, "入金到哪個帳戶");
       assert(target.type !== "CREDIT_CARD", "REWARD_TARGET_CARD", "不能入金到信用卡");
@@ -406,7 +406,7 @@ export async function depositRewards(
         assert(source.id !== target.id, "TRANSFER_SAME", "來源帳戶和入金帳戶不能相同");
         assert(source.type !== "CREDIT_CARD", "TRANSFER_FROM_CARD", `「${source.name}」是信用卡，不能當轉出帳戶`);
         const { free } = await accountFreeAmount(tx, ctx.book.id, source.id);
-        assert(amount <= free, "FUND_OVER_FREE", `「${source.name}」可自由使用的金額只剩 ${formatMoney(Math.max(0, free))}，不夠轉入 ${formatMoney(amount)}`);
+        assert(amount <= free, "FUND_OVER_FREE", `「${source.name}」可自由使用的金額只剩 ${formatMoney(Math.max(0, free), { currency: ctx.book.baseCurrency })}，不夠轉入 ${formatMoney(amount, { currency: ctx.book.baseCurrency })}`);
         const lines = buildTransferLines(amount, { id: source.id, ownerId: source.ownerId }, { id: target.id, ownerId: target.ownerId });
         const t = await tx.transaction.create({
           data: {
@@ -427,7 +427,7 @@ export async function depositRewards(
         transactionId = t.id;
       } else {
         const { free } = await accountFreeAmount(tx, ctx.book.id, target.id);
-        assert(amount <= free, "FUND_OVER_FREE", `「${target.name}」可自由使用的金額只剩 ${formatMoney(Math.max(0, free))}，不夠入金 ${formatMoney(amount)}。請改選「錢從哪個帳戶轉入」。`);
+        assert(amount <= free, "FUND_OVER_FREE", `「${target.name}」可自由使用的金額只剩 ${formatMoney(Math.max(0, free), { currency: ctx.book.baseCurrency })}，不夠入金 ${formatMoney(amount, { currency: ctx.book.baseCurrency })}。請改選「錢從哪個帳戶轉入」。`);
       }
 
       const entry = await tx.fundTransaction.create({
@@ -440,7 +440,7 @@ export async function depositRewards(
           accountId: target.id,
           transactionId,
           occurredAt,
-          note: input.note.trim() || `獎金 ${formatMoney(pending.rewards)}${pending.penalties ? ` − 懲罰 ${formatMoney(pending.penalties)}` : ""}`,
+          note: input.note.trim() || `獎金 ${formatMoney(pending.rewards, { currency: ctx.book.baseCurrency })}${pending.penalties ? ` − 懲罰 ${formatMoney(pending.penalties, { currency: ctx.book.baseCurrency })}` : ""}`,
           sourceType: "TASK_REWARDS",
           sourceId: fund.id,
           clientRequestId: input.clientRequestId,
@@ -516,7 +516,7 @@ export async function syncFundExpense(
   assert(
     total >= t.amount,
     "FUND_OVER_BALANCE",
-    `「${fund.name}」實際金額只有 ${formatMoney(Math.max(0, total))}，不夠支出 ${formatMoney(t.amount)}（尚未入金的獎金不能拿來付款）`,
+    `「${fund.name}」實際金額只有 ${formatMoney(Math.max(0, total), { currency: ctx.book.baseCurrency })}，不夠支出 ${formatMoney(t.amount, { currency: ctx.book.baseCurrency })}（尚未入金的獎金不能拿來付款）`,
   );
   // 產品規則：一定要由使用者指定動用哪個帳戶的額度，系統不會自己挑別的帳戶
   assert(fundAccountId, "FUND_ACCOUNT_REQUIRED", `請選擇要動用哪個帳戶裡指定給「${fund.name}」的額度`);
@@ -527,7 +527,7 @@ export async function syncFundExpense(
   assert(
     have >= t.amount,
     "FUND_ALLOCATION_INSUFFICIENT",
-    `「${fundAcc.name}」裡指定給「${fund.name}」的額度只有 ${formatMoney(Math.max(0, have))}，不夠這筆 ${formatMoney(t.amount)}。請改選其他帳戶，或先把基金的錢移過去。`,
+    `「${fundAcc.name}」裡指定給「${fund.name}」的額度只有 ${formatMoney(Math.max(0, have), { currency: ctx.book.baseCurrency })}，不夠這筆 ${formatMoney(t.amount, { currency: ctx.book.baseCurrency })}。請改選其他帳戶，或先把基金的錢移過去。`,
   );
   const accountId = fundAccountId;
   const data = {

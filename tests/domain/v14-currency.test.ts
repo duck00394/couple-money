@@ -16,6 +16,7 @@ import {
   toForeignAmount,
 } from "../../src/server/domain/exchange";
 import { DomainError } from "../../src/server/domain/errors";
+import { formatMoney, homeApprox, moneyFmt } from "../../src/lib/money";
 import {
   CURRENCIES,
   currencyOf,
@@ -180,5 +181,43 @@ describe("V14 匯率的人話標示", () => {
     assert.equal(suggestedUnits("JPY"), 100);
     assert.equal(suggestedUnits("KRW"), 1000);
     assert.equal(suggestedUnits("USD"), 1);
+  });
+});
+
+describe("V16 帳本本位幣的顯示", () => {
+  it("日圓帳本用 ¥ 而且不顯示小數（金額仍然存成 1/100）", () => {
+    // 輸入 2000 → 200000 最小單位 → 顯示 ¥2,000（不是 $2,000，也不是 ¥200,000）
+    assert.equal(formatMoney(200000, { currency: "JPY" }), "¥2,000");
+    assert.equal(formatMoney(53750, { currency: "JPY" }), "¥538");
+    assert.equal(formatMoney(0, { currency: "JPY" }), "¥0");
+  });
+
+  it("韓元同理", () => {
+    assert.equal(formatMoney(1000000, { currency: "KRW" }), "₩10,000");
+  });
+
+  it("台幣行為完全不變（既有畫面不受影響）", () => {
+    assert.equal(formatMoney(200000), "$2,000");
+    // 台幣維持裸的 $（既有畫面不變）；NT$ 只出現在 homeApprox 那一行
+    assert.equal(formatMoney(200000, { currency: "TWD" }), "$2,000");
+    assert.equal(formatMoney(53750), "$537.50");
+    assert.equal(formatMoney(-1234), "-$12.34");
+    assert.equal(formatMoney(1234, { sign: true }), "+$12.34");
+  });
+
+  it("moneyFmt 綁好幣別之後行為一致", () => {
+    const jpy = moneyFmt("JPY");
+    assert.equal(jpy(200000), "¥2,000");
+    assert.equal(jpy(200000, { sign: true }), "+¥2,000");
+  });
+
+  it("換回台幣只是參考值：100 JPY = 21.5 TWD 時 ¥85,400 ≈ NT$18,361", () => {
+    assert.equal(homeApprox(8540000, { units: 100, minor: 2150 }), "NT$18,361");
+  });
+
+  it("沒有設匯率就不顯示那一行", () => {
+    assert.equal(homeApprox(200000, null), null);
+    assert.equal(homeApprox(200000, { units: 0, minor: 2150 }), null);
+    assert.equal(homeApprox(200000, { units: 100, minor: 0 }), null);
   });
 });

@@ -4,7 +4,7 @@ import { DeleteRecurringButton, GenerateButton, ToggleRecurringButton } from "@/
 import { RecurringForm } from "@/components/RecurringForm";
 import { Card, Collapsible, PageHeader } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { listAccounts, listCategories } from "@/server/services/ledger";
 import { getRecurring } from "@/server/services/recurring";
@@ -13,6 +13,7 @@ import { accountOptionLabel } from "@/server/txFormData";
 export default async function RecurringDetailPage({ params }: PageProps<"/recurring/[id]">) {
   const { id } = await params;
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const r = await getRecurring(ctx, id);
   if (!r) notFound();
   const [accounts, categories] = await Promise.all([listAccounts(ctx), listCategories(ctx, { keepId: r.categoryId })]);
@@ -26,7 +27,7 @@ export default async function RecurringDetailPage({ params }: PageProps<"/recurr
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs text-stone-500">{r.scheduleText}</p>
-              <p className="text-2xl font-bold">{formatMoney(r.amount)}</p>
+              <p className="text-2xl font-bold">{fmtMoney(r.amount)}</p>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-xs ${r.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-stone-100 text-stone-500"}`}>
               {r.status === "ACTIVE" ? (r.state === "ENDED" ? "已結束" : "啟用中") : "已停用"}
@@ -59,7 +60,7 @@ export default async function RecurringDetailPage({ params }: PageProps<"/recurr
                       {toDateKey(t.occurredAt).replaceAll("-", "/")}
                       <span className="ml-2 text-xs text-stone-500">{t.payments[0]?.account.name}</span>
                     </span>
-                    <span className="font-semibold">{formatMoney(t.amount)}</span>
+                    <span className="font-semibold">{fmtMoney(t.amount)}</span>
                   </Link>
                 </li>
               ))}

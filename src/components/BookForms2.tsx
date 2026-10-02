@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { closeBookAction, createBookAction2, reopenBookAction } from "@/app/actions/books";
+import { deleteBookAction, updateBookAction2 } from "@/app/actions/bookEdit";
 import { ActionForm } from "./ActionForm";
 import { Button, Card, DateInput, ErrorText, Field, Input, Select, cx } from "./ui";
 import { CURRENCIES } from "@/lib/currency";
@@ -16,12 +17,15 @@ import { CURRENCIES } from "@/lib/currency";
 export function NewBookForm({ baseCurrency }: { baseCurrency: string }) {
   const [state, action, pending] = useActionState(createBookAction2, undefined);
   const [type, setType] = useState<"TRIP" | "CUSTOM">("TRIP");
+  // 選了外幣就在這一頁直接填匯率，不用再跑一趟設定頁
+  const [currency, setCurrency] = useState(baseCurrency);
+  const foreign = currency !== "TWD";
 
   return (
     <ActionForm action={action} className="space-y-4">
       <Field label="帳本類型">
         <div className="grid grid-cols-2 gap-2">
-          {([["TRIP", "✈️ 旅遊"], ["CUSTOM", "📗 自訂"]] as const).map(([v, label]) => (
+          {([["TRIP", "旅遊"], ["CUSTOM", "自訂"]] as const).map(([v, label]) => (
             <button
               key={v}
               type="button"
@@ -55,12 +59,23 @@ export function NewBookForm({ baseCurrency }: { baseCurrency: string }) {
       )}
 
       <Field label="本位幣" hint="這本帳本的統計與結算用哪個幣別">
-        <Select name="baseCurrency" defaultValue={baseCurrency}>
+        <Select name="baseCurrency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
           {CURRENCIES.map((c) => (
             <option key={c.code} value={c.code}>{c.code}・{c.name}</option>
           ))}
         </Select>
       </Field>
+
+      {foreign && (
+        <Field label="換回台幣大概多少" hint="只影響金額旁邊那行「約 NT$」，不會改到任何記帳金額；之後可以再改">
+          <div className="flex items-center gap-2">
+            <Input name="homeRateUnits" inputMode="numeric" defaultValue={currency === "JPY" ? "100" : currency === "KRW" ? "1000" : "1"} className="w-20 text-center" aria-label={`${currency} 數量`} />
+            <span className="shrink-0 text-sm font-semibold text-stone-600">{currency} =</span>
+            <Input name="homeRateValue" inputMode="decimal" placeholder="0" className="flex-1 text-center" aria-label="台幣金額" />
+            <span className="shrink-0 text-sm font-semibold text-stone-600">TWD</span>
+          </div>
+        </Field>
+      )}
 
       <Field label="備註" hint="可以不填">
         <Input name="note" maxLength={200} placeholder="例如：和朋友一起" />
@@ -174,5 +189,113 @@ export function MainBookNotice({ activeBookName }: { activeBookName: string }) {
         回「{activeBookName}」首頁 →
       </Link>
     </div>
+  );
+}
+
+/**
+ * 編輯帳本：名稱、起訖日、備註、換回台幣的參考匯率。
+ *
+ * 匯率刻意放在這裡而不是設定頁 —— 建旅遊帳本的當下就是你查匯率的時候，
+ * 沒必要再跑一趟設定。寫法也維持人看得懂的「100 JPY = 21.5 TWD」。
+ */
+export function EditBookForm({
+  name, startOn, endOn, note, baseCurrency, homeRate,
+}: {
+  name: string;
+  startOn: string | null;
+  endOn: string | null;
+  note: string | null;
+  baseCurrency: string;
+  homeRate: { units: number; minor: number } | null;
+}) {
+  const [state, action, pending] = useActionState(updateBookAction2, undefined);
+  const isHome = baseCurrency === "TWD";
+
+  return (
+    <ActionForm action={action} className="space-y-4">
+      <Field label="帳本名稱">
+        <Input name="name" required maxLength={30} defaultValue={name} />
+      </Field>
+      <Field label="開始日期" hint="可以不填">
+        <DateInput name="startOn" defaultValue={startOn ?? ""} />
+      </Field>
+      <Field label="結束日期" hint="可以不填">
+        <DateInput name="endOn" defaultValue={endOn ?? ""} />
+      </Field>
+      <Field label="備註" hint="可以不填">
+        <Input name="note" maxLength={200} defaultValue={note ?? ""} />
+      </Field>
+
+      {!isHome && (
+        <Field label="換回台幣的參考匯率" hint="只影響旁邊那行「約 NT$」，不會改到任何金額">
+          <div className="flex items-center gap-2">
+            <Input name="homeRateUnits" inputMode="numeric" defaultValue={String(homeRate?.units ?? 100)} className="w-20 text-center" aria-label={`${baseCurrency} 數量`} />
+            <span className="shrink-0 text-sm font-semibold text-stone-600">{baseCurrency} =</span>
+            <Input name="homeRateValue" inputMode="decimal" defaultValue={homeRate ? String(homeRate.minor / 100) : ""} placeholder="0" className="flex-1 text-center" aria-label="台幣金額" />
+            <span className="shrink-0 text-sm font-semibold text-stone-600">TWD</span>
+          </div>
+        </Field>
+      )}
+
+      <ErrorText>{state?.error}</ErrorText>
+      {state?.ok && <p className="text-sm font-semibold text-brand-700">{state.ok}</p>}
+      <Button type="submit" className="w-full" disabled={pending}>{pending ? "儲存中…" : "儲存"}</Button>
+    </ActionForm>
+  );
+}
+
+/**
+ * 永久刪除帳本。
+ *
+ * 要把帳本名稱一字不差打進來才能按 —— 這是救不回來的操作，
+ * 多一道手續比事後道歉便宜。server 端會再檢查一次，繞過表單也刪不掉。
+ */
+export function DeleteBookForm({ bookId, name }: { bookId: string; name: string }) {
+  const [state, action, pending] = useActionState(deleteBookAction, undefined);
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs text-stone-400 underline-offset-2 hover:underline"
+        data-testid="delete-book-open"
+      >
+        永久刪除這本帳本
+      </button>
+    );
+  }
+
+  return (
+    <Card className="space-y-3 border-red-300 bg-red-50">
+      <p className="text-sm font-bold text-red-700">永久刪除「{name}」</p>
+      <p className="text-xs leading-relaxed text-stone-700">
+        這會把這本帳本<b>連同裡面的交易、帳戶、分類、統計全部永久刪除</b>，
+        <b className="text-red-700">救不回來</b>。
+        <br />
+        只是想收起來的話請用「結案」 —— 那不會刪任何資料，之後還能重新開啟。
+      </p>
+      <ActionForm action={action} className="space-y-2.5">
+        <input type="hidden" name="bookId" value={bookId} />
+        <Field label={`請輸入「${name}」以確認`}>
+          <Input name="confirmName" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={name} data-testid="delete-book-confirm-name" autoComplete="off" />
+        </Field>
+        <ErrorText>{state?.error}</ErrorText>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => { setOpen(false); setTyped(""); }}
+            className="press flex-1 rounded-full border-[1.5px] border-line bg-white px-4 py-2.5 text-sm font-semibold text-stone-600"
+          >
+            取消
+          </button>
+          <Button type="submit" variant="danger" className="flex-1" disabled={pending || typed.trim() !== name} data-testid="delete-book-confirm">
+            {pending ? "刪除中…" : "永久刪除"}
+          </Button>
+        </div>
+      </ActionForm>
+    </Card>
   );
 }

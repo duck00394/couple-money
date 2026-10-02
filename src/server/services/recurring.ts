@@ -303,7 +303,7 @@ export function splitLabel(split: SplitRule, ctx: BookContext): string {
     case "RATIO":
       return split.participants.map((p) => `${nick(p.userId)} ${p.value}%`).join("／");
     case "AMOUNT":
-      return split.participants.map((p) => `${nick(p.userId)} ${formatMoney(p.value ?? 0)}`).join("／");
+      return split.participants.map((p) => `${nick(p.userId)} ${formatMoney(p.value ?? 0, { currency: ctx.book.baseCurrency })}`).join("／");
     default:
       return "依份數";
   }

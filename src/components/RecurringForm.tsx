@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
+import { useMoney } from "./CurrencyContext";
 import { saveRecurringAction } from "@/app/actions/recurring";
-import { formatMoney, parseAmount, toInputString } from "@/lib/money";
+import { parseAmount, toInputString } from "@/lib/money";
 import { computeSplit, type SplitMethod, type SplitRule } from "@/server/domain/split";
 import { DomainError } from "@/server/domain/errors";
 import { computeNextDueDate, scheduleLabel, WEEKDAY_NAMES, type RecurringFrequency } from "@/server/domain/recurring";
@@ -50,6 +51,7 @@ export function RecurringForm({ me, partner, accounts, categories, today, initia
   today: string;
   initial?: RecurringInitial;
 }) {
+  const fmtMoney = useMoney();
   const members = useMemo(() => [me, ...(partner ? [partner] : [])], [me, partner]);
   const [name, setName] = useState(initial?.name ?? "");
   const [amountStr, setAmountStr] = useState(initial ? toInputString(initial.amount) : "");
@@ -220,7 +222,7 @@ export function RecurringForm({ me, partner, accounts, categories, today, initia
                   我 $
                   <input aria-label="我負擔的金額" inputMode="decimal" value={myAmountStr} onChange={(e) => setMyAmountStr(e.target.value.replace(/[^\d.,]/g, ""))} className="h-9 w-24 rounded-lg border border-stone-200 text-center" placeholder="0" />
                 </label>
-                <span>{partner.nickname} {formatMoney(Math.max(0, (amount ?? 0) - (parseAmount(myAmountStr) ?? 0)))}</span>
+                <span>{partner.nickname} {fmtMoney(Math.max(0, (amount ?? 0) - (parseAmount(myAmountStr) ?? 0)))}</span>
               </div>
             )}
             {method === "FULL" && (
@@ -239,7 +241,7 @@ export function RecurringForm({ me, partner, accounts, categories, today, initia
               {members.map((m) => (
                 <div key={m.userId} className="flex justify-between">
                   <span className="text-stone-500">{m.userId === me.userId ? "我" : m.nickname}負擔</span>
-                  <span>{formatMoney(shareOf(m.userId))}</span>
+                  <span>{fmtMoney(shareOf(m.userId))}</span>
                 </div>
               ))}
             </div>

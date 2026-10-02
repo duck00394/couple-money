@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getAppContext } from "@/server/context";
 import { DomainError } from "@/server/domain/errors";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { saveUpload } from "@/server/services/attachments";
 import { cancelCheckIn, checkIn, createTask, deleteTask, duplicateTask, editCheckIn, reviewCheckIn, updateTask, waivePenalty } from "@/server/services/tasks";
 import { str, toActionState, type ActionState } from "@/server/actions";
@@ -62,11 +62,12 @@ async function uploadIfAny(ctx: Awaited<ReturnType<typeof getAppContext>>["ctx"]
 export async function checkInAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
     const { ctx } = await getAppContext();
+    const fmtMoney = moneyFmt(ctx.book.baseCurrency);
     const photoId = await uploadIfAny(ctx, form);
     const r = await checkIn(ctx, str(form, "taskId"), { note: str(form, "note"), photoId });
     if (r.checkIn.status === "PENDING") return { ok: "已打卡，等另一半確認 ⏳" };
     const bonus = r.reached
-      .map((m) => `${m.badgeEmoji} 達成「${m.badgeName}」${m.bonusAmount ? ` +${formatMoney(m.bonusAmount)}（尚未入金）` : ""}${m.rewardText ? `・${m.rewardText}` : ""}`)
+      .map((m) => `${m.badgeEmoji} 達成「${m.badgeName}」${m.bonusAmount ? ` +${fmtMoney(m.bonusAmount)}（尚未入金）` : ""}${m.rewardText ? `・${m.rewardText}` : ""}`)
       .join("　");
     return { ok: `完成！連續 ${r.streak} 天${bonus ? `　${bonus}` : ""}` };
   });

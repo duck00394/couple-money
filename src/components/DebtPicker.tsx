@@ -1,8 +1,9 @@
 "use client";
 
 import { useActionState, useMemo, useState } from "react";
+import { useCurrency, useMoney } from "./CurrencyContext";
 import { settleAction } from "@/app/actions/settle";
-import { formatMoney, toInputString } from "@/lib/money";
+import { toInputString } from "@/lib/money";
 import { ActionForm } from "./ActionForm";
 import { DebtItemRow, type DebtItemView } from "./DebtItems";
 import { showToast } from "./Toast";
@@ -31,6 +32,8 @@ export function DebtPicker(props: {
   total: number;
   unassignedCredit: number;
 }) {
+  const fmtMoney = useMoney();
+  const currency = useCurrency();
   const payable = useMemo(() => props.items.filter((i) => i.remaining > 0), [props.items]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [clientRequestId, setRequestId] = useState(() => crypto.randomUUID());
@@ -90,6 +93,7 @@ export function DebtPicker(props: {
               className={cx("flex items-center gap-3 px-4 py-3", done ? "opacity-55" : "cursor-pointer active:bg-stone-50")}
             >
               <DebtItemRow
+                currency={currency}
                 item={i}
                 shareLabel="我應負擔"
                 checkbox={
@@ -113,7 +117,7 @@ export function DebtPicker(props: {
       </p>
       {props.unassignedCredit > 0 && (
         <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-          有 {formatMoney(props.unassignedCredit)} 的沖銷金額對應不到任何欠款項目（未分配），這裡保守不做分配。欠款總額仍以帳本的即時計算為準。
+          有 {fmtMoney(props.unassignedCredit)} 的沖銷金額對應不到任何欠款項目（未分配），這裡保守不做分配。欠款總額仍以帳本的即時計算為準。
         </p>
       )}
 
@@ -137,10 +141,10 @@ export function DebtPicker(props: {
       <div className="sticky-submit-bar">
         <div className="mb-2 flex items-baseline justify-between text-sm">
           <span className="text-stone-600" data-testid="debt-selected-count">已選 {selected.size} 筆</span>
-          <span className="tnum font-semibold text-stone-800" data-testid="debt-selected-total">還款總額 {formatMoney(amount)}</span>
+          <span className="tnum font-semibold text-stone-800" data-testid="debt-selected-total">還款總額 {fmtMoney(amount)}</span>
         </div>
         <Button type="submit" className="w-full" disabled={!canSubmit}>
-          {pending ? "處理中…" : amount > 0 ? `${props.fromName} 還 ${formatMoney(amount)} 給 ${props.toName}` : "請先勾選要還的項目"}
+          {pending ? "處理中…" : amount > 0 ? `${props.fromName} 還 ${fmtMoney(amount)} 給 ${props.toName}` : "請先勾選要還的項目"}
         </Button>
       </div>
     </ActionForm>

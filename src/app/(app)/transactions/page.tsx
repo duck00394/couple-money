@@ -5,7 +5,7 @@ import { TxRow } from "@/components/TxRow";
 import { SuggestBar } from "@/components/PurchaseForms";
 import { Card, Empty, PageHeader } from "@/components/ui";
 import { dateHeading, toDateKey } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { activeFilterKeys, filterToQuery, parseFilter, SEARCH_KIND_LABEL, type TransactionFilter } from "@/server/domain/search";
 import { searchOptions, searchTransactions, type SearchItem } from "@/server/services/search";
@@ -17,6 +17,7 @@ const PAGE = 50;
 
 export default async function TransactionsPage({ searchParams }: PageProps<"/transactions">) {
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const sp = await searchParams;
   const filter = parseFilter(sp);
   const limit = Math.min(1000, Math.max(PAGE, Number(sp.limit) || PAGE));
@@ -47,8 +48,8 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/tra
     accountId: (f) => nameOf(options.accounts, f.accountId),
     fundId: (f) => nameOf(options.funds, f.fundId),
     tag: (f) => `#${f.tag}`,
-    min: (f) => `≥ ${formatMoney(f.min!)}`,
-    max: (f) => `≤ ${formatMoney(f.max!)}`,
+    min: (f) => `≥ ${fmtMoney(f.min!)}`,
+    max: (f) => `≤ ${fmtMoney(f.max!)}`,
   };
   const query = filterToQuery(filter);
 
@@ -112,13 +113,13 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/tra
         {filtering && (
           <Card className="mt-3 grid grid-cols-3 gap-2 px-3 py-3.5 text-center" data-testid="search-totals">
             <div><p className="text-[11px] text-stone-500">共</p><p className="amount">{totals.count} 筆</p></div>
-            <div><p className="text-[11px] text-stone-500">實際淨支出</p><p className="amount" data-testid="search-net-expense">{formatMoney(totals.netExpense)}</p></div>
-            <div><p className="text-[11px] text-stone-500">收入</p><p className="amount text-emerald-600">{formatMoney(totals.income)}</p></div>
+            <div><p className="text-[11px] text-stone-500">實際淨支出</p><p className="amount" data-testid="search-net-expense">{fmtMoney(totals.netExpense)}</p></div>
+            <div><p className="text-[11px] text-stone-500">收入</p><p className="amount text-emerald-600">{fmtMoney(totals.income)}</p></div>
             {(totals.refund > 0 || totals.transferCount > 0) && (
               <p className="col-span-3 text-[11px] text-stone-500">
-                {totals.refund > 0 && `支出 ${formatMoney(totals.expense)} − 退款 ${formatMoney(totals.refund)}`}
+                {totals.refund > 0 && `支出 ${fmtMoney(totals.expense)} − 退款 ${fmtMoney(totals.refund)}`}
                 {totals.refund > 0 && totals.transferCount > 0 && "・"}
-                {totals.transferCount > 0 && `轉帳 ${totals.transferCount} 筆 ${formatMoney(totals.transferAmount)}（不算收支）`}
+                {totals.transferCount > 0 && `轉帳 ${totals.transferCount} 筆 ${fmtMoney(totals.transferAmount)}（不算收支）`}
               </p>
             )}
           </Card>
@@ -149,7 +150,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/tra
               <section key={key} className="mb-4">
                 <div className="mb-1.5 flex items-baseline justify-between px-1.5 text-xs">
                   <span className="font-semibold text-stone-500">{dateHeading(key)}</span>
-                  {spent !== 0 && !partial && <span className="tnum text-stone-400">支出 {formatMoney(spent)}</span>}
+                  {spent !== 0 && !partial && <span className="tnum text-stone-400">支出 {fmtMoney(spent)}</span>}
                 </div>
                 <Card className="divide-y divide-line p-0">
                   {list.map((tx) => (

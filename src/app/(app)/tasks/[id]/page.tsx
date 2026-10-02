@@ -5,7 +5,7 @@ import { DuplicateTaskButton } from "@/components/TaskActions";
 import { TaskForm } from "@/components/TaskForm";
 import { Card, Collapsible, Empty, PageHeader, SectionTitle } from "@/components/ui";
 import { addDays, dateHeading, dbDateToKey, toDateKey, weekStart } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import { moneyFmt } from "@/lib/money";
 import { getAppContext } from "@/server/context";
 import { FREQUENCY_HINT, isScheduled, maskLabel } from "@/server/domain/streak";
 import { applyMissedPenalties, getTaskDetail } from "@/server/services/tasks";
@@ -14,6 +14,7 @@ import { loadTaskFormProps } from "@/server/taskFormData";
 export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]">) {
   const { id } = await params;
   const { ctx } = await getAppContext();
+  const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   await applyMissedPenalties(ctx);
   const today = toDateKey(new Date());
   const d = await getTaskDetail(ctx, id, today);
@@ -34,8 +35,8 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
 
   type Row = { key: string; date: string; icon: string; text: string; amount: string; waive: string | null; waived: boolean };
   const history: Row[] = [
-    ...d.rewards.map((r): Row => ({ key: r.id, date: dbDateToKey(r.checkIn.date), icon: r.kind === "MILESTONE" ? "medal" : "trophy", text: `${name(r.userId)}${r.kind === "MILESTONE" ? " 里程碑獎金" : " 完成獎金"}・${r.depositEntryId ? "已入金" : "尚未入金"}`, amount: `+${formatMoney(r.amount)}`, waive: null, waived: false })),
-    ...d.penalties.map((p): Row => ({ key: p.id, date: dbDateToKey(p.date), icon: "undo", text: `${name(p.userId)} 未完成${p.text ? `・${p.text}` : ""}`, amount: p.amount ? `-${formatMoney(p.amount)}` : "", waive: !p.waivedAt && !p.depositEntryId && ctx.canWrite && (p.userId !== ctx.me.userId || !ctx.partner) ? p.id : null, waived: !!p.waivedAt })),
+    ...d.rewards.map((r): Row => ({ key: r.id, date: dbDateToKey(r.checkIn.date), icon: r.kind === "MILESTONE" ? "medal" : "trophy", text: `${name(r.userId)}${r.kind === "MILESTONE" ? " 里程碑獎金" : " 完成獎金"}・${r.depositEntryId ? "已入金" : "尚未入金"}`, amount: `+${fmtMoney(r.amount)}`, waive: null, waived: false })),
+    ...d.penalties.map((p): Row => ({ key: p.id, date: dbDateToKey(p.date), icon: "undo", text: `${name(p.userId)} 未完成${p.text ? `・${p.text}` : ""}`, amount: p.amount ? `-${fmtMoney(p.amount)}` : "", waive: !p.waivedAt && !p.depositEntryId && ctx.canWrite && (p.userId !== ctx.me.userId || !ctx.partner) ? p.id : null, waived: !!p.waivedAt })),
   ]
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 30);
@@ -46,7 +47,7 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
       <div className="px-4">
         <p className="mb-3 px-1 text-sm text-stone-500">
           {who}・<span data-testid="task-frequency">{task.frequency === "CUSTOM" ? `${maskLabel(task.daysOfWeek)}・每天最多一次` : FREQUENCY_HINT[task.frequency as keyof typeof FREQUENCY_HINT]}</span>
-          {task.rewardAmount > 0 && `・完成獎金 +${formatMoney(task.rewardAmount)}${task.fund ? `（記入 ${task.fund.name} 尚未入金）` : ""}`}
+          {task.rewardAmount > 0 && `・完成獎金 +${fmtMoney(task.rewardAmount)}${task.fund ? `（記入 ${task.fund.name} 尚未入金）` : ""}`}
           {task.requiresApproval && "・需對方確認"}
           {task.requiresPhoto && "・需照片"}
           {!task.isActive && "・已停用"}
@@ -62,7 +63,7 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
                 <p className="rounded-xl bg-brand-100 px-3 py-2 text-sm font-semibold text-brand-700" data-testid="checkin-status">
                   {d.todayCount === 0
                     ? "做一次賺一次，今天還沒有完成過"
-                    : `今天已完成 ${d.todayCount} 次・+${formatMoney(d.todayReward)}`}
+                    : `今天已完成 ${d.todayCount} 次・+${fmtMoney(d.todayReward)}`}
                 </p>
                 {d.todayCheckIns.length > 0 && (
                   <ul className="divide-y divide-line rounded-xl bg-stone-50" data-testid="per-time-list">
@@ -174,14 +175,14 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
               <span className={m.claims.length ? "" : "opacity-40 grayscale"}><ArtIcon name={m.badgeEmoji} size={24} /></span>
               <div className="min-w-0 flex-1">
                 <p className="font-medium">連續 {m.days} {unit}・{m.badgeName}</p>
-                <p className="truncate text-xs text-stone-500">{[m.bonusAmount > 0 && `+${formatMoney(m.bonusAmount)}`, m.rewardText].filter(Boolean).join("・") || "徽章"}</p>
+                <p className="truncate text-xs text-stone-500">{[m.bonusAmount > 0 && `+${fmtMoney(m.bonusAmount)}`, m.rewardText].filter(Boolean).join("・") || "徽章"}</p>
               </div>
               <span className="text-xs text-stone-500">{m.claims.length ? `達成 ${m.claims.length} 次` : `還差 ${Math.max(0, m.days - stats.current)} ${unit}`}</span>
             </div>
           ))}
         </Card>
 
-        <SectionTitle right={<span className="text-sm text-stone-500">累計 +{formatMoney(d.totalReward)}{d.totalPenalty > 0 && ` / -${formatMoney(d.totalPenalty)}`}</span>}>獎金與懲罰紀錄</SectionTitle>
+        <SectionTitle right={<span className="text-sm text-stone-500">累計 +{fmtMoney(d.totalReward)}{d.totalPenalty > 0 && ` / -${fmtMoney(d.totalPenalty)}`}</span>}>獎金與懲罰紀錄</SectionTitle>
         <Card className="divide-y divide-line p-0">
           {d.rewards.length === 0 && d.penalties.length === 0 && <Empty>還沒有紀錄</Empty>}
           {history.map((row) => (
