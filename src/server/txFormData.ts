@@ -4,6 +4,7 @@ import { toDateKey } from "@/lib/dates";
 import type { BookContext } from "./services/books";
 import { ACCOUNT_TYPE_ICON, listAccounts, listCategories } from "./services/ledger";
 import { allocationsForForm, listFunds } from "./services/funds";
+import { listRates } from "./services/rates";
 import { listPreorders } from "./services/preorders";
 import { rankTags } from "./domain/tags";
 import { optionsForForm as purchaseOptions } from "./services/purchases";
@@ -19,7 +20,7 @@ export function accountOptionLabel(ctx: BookContext, a: { name: string; type: Ac
  * `keepCategoryId`：編輯舊紀錄時，那筆原本的分類即使已停用也要留在選單裡。
  */
 export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId?: string | null; keepPreorderId?: string | null } = {}) {
-  const [accounts, categories, funds, allocations, tags, preorders, purchaseGroups] = await Promise.all([listAccounts(ctx), listCategories(ctx, { keepId: opts.keepCategoryId }), listFunds(ctx, { includeArchived: true }), allocationsForForm(ctx), recentTags(ctx), payablePreorders(ctx, opts.keepPreorderId), purchaseOptions(ctx)]);
+  const [accounts, categories, funds, allocations, tags, preorders, purchaseGroups, rates] = await Promise.all([listAccounts(ctx), listCategories(ctx, { keepId: opts.keepCategoryId }), listFunds(ctx, { includeArchived: true }), allocationsForForm(ctx), recentTags(ctx), payablePreorders(ctx, opts.keepPreorderId), ctx.book.type === "MAIN" ? purchaseOptions(ctx) : Promise.resolve([]), listRates(ctx)]);
   return {
     me: { userId: ctx.me.userId, nickname: ctx.me.nickname },
     partner: ctx.partner ? { userId: ctx.partner.userId, nickname: ctx.partner.nickname } : null,
@@ -33,8 +34,18 @@ export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId
     tagOptions: tags,
     /** 還沒付完的預購，記帳時可以直接選 */
     preorders,
-    /** 購買紀錄的作品；每個作品帶著自己的角色與商品分類 */
+    /**
+     * 購買紀錄的作品；每個作品帶著自己的角色與商品分類。
+     *
+     * V15：**只有原帳本才會有值。** 購買紀錄固定屬於原帳本，若在旅遊帳本記帳時
+     * 勾選加入，PurchaseEntry.transactionId 就會指向別本帳本的交易 —— 一個會長期
+     * 製造麻煩的跨帳本外鍵。空陣列會讓那一整列不顯示（表單本來就這樣處理）。
+     * 旅行中想記收藏，到購買紀錄頁手動新增即可（它完全不參與財務計算）。
+     */
     purchaseGroups,
+    /** V14：帳本本位幣，以及已經設定好匯率的外幣（沒設定過就是空陣列，幣別選單不會出現） */
+    baseCurrency: ctx.book.baseCurrency,
+    rates,
   };
 }
 

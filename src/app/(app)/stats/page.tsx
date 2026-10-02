@@ -4,6 +4,8 @@ import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
+import { currencyBreakdown } from "@/server/services/rates";
+import { currencyOf, formatCurrency } from "@/lib/currency";
 import { EMPTY_FILTER, filterToQuery } from "@/server/domain/search";
 import { clampMonth, monthKeyRange, monthLabel, recentMonths, shiftMonth } from "@/server/domain/stats";
 import { statsOverview } from "@/server/services/stats";
@@ -33,6 +35,8 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
   const drill = (extra: Partial<typeof EMPTY_FILTER> = {}) =>
     `/transactions?${filterToQuery({ ...EMPTY_FILTER, from, to, ...extra })}`;
 
+  // V14：各幣別的原幣小計（全是台幣的帳本會是空陣列，整個區塊不會出現）
+  const byCurrency = await currencyBreakdown(ctx, { from, to });
   const net = stats.totals.netExpense;
   const ratio = (v: number) => (net > 0 ? v / net : 0);
   const partnerName = ctx.partner?.nickname ?? "另一半";
@@ -79,6 +83,34 @@ export default async function StatsPage({ searchParams }: PageProps<"/stats">) {
                 <span className="amount text-xl text-brand-600" data-testid="stats-income">{formatMoney(stats.totals.income)}</span>
               </Link>
             </Card>
+
+            {/*
+              V14：多幣別明細（規格點 12）。
+              上面的淨支出已經是全部換算成台幣的總額；這裡拆開來看「其中哪些是外幣花的」。
+              刻意只列原幣小計與它當初換算出來的台幣，**不把不同幣別相加**。
+            */}
+            {byCurrency.length > 0 && (
+              <>
+                <SectionTitle>其中的外幣消費</SectionTitle>
+                <Card quiet className="divide-y divide-line p-0" data-testid="stats-currencies">
+                  {byCurrency.map((c) => (
+                    <div key={c.currency} className="flex items-baseline justify-between px-4 py-3">
+                      <span className="text-sm text-stone-600">
+                        {currencyOf(c.currency).name}
+                        <span className="ml-1.5 text-[11px] text-stone-400">{c.count} 筆</span>
+                      </span>
+                      <span className="text-right">
+                        <span className="amount block text-[15px] text-stone-800">{formatCurrency(c.foreign, c.currency)}</span>
+                        <span className="block text-[11px] text-stone-500">≈ {formatMoney(c.base)}</span>
+                      </span>
+                    </div>
+                  ))}
+                  <p className="px-4 py-2.5 text-[11px] text-stone-400">
+                    每一筆都用它當初記帳時的匯率換算，之後改匯率設定不會影響這裡。
+                  </p>
+                </Card>
+              </>
+            )}
 
             <SectionTitle>誰掏錢（實際付出去的）</SectionTitle>
             <Card quiet className="divide-y divide-line p-0">

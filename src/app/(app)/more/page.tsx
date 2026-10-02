@@ -15,11 +15,13 @@ const MENU: Array<{ title: string; items: Array<{ href: string; icon: string; la
   {
     title: "管理",
     items: [
+      { href: "/books", icon: "book", label: "帳本", sub: "原帳本、旅遊帳本、歷史紀錄" },
       { href: "/preorders", icon: "package", label: "預購", sub: "已付、待結、運費、預計到貨" },
       { href: "/accounts", icon: "credit-card", label: "帳戶管理", sub: "新增帳戶、餘額、可自由使用的錢" },
       { href: "/categories", icon: "tag", label: "分類管理", sub: "新增、改名、停用" },
       { href: "/recurring", icon: "calendar-clock", label: "固定支出", sub: "房租、訂閱、每月自動提醒" },
       { href: "/budgets", icon: "coins", label: "每月預算", sub: "只是提醒，不會擋記帳" },
+      { href: "/rates", icon: "banknote", label: "幣別與匯率", sub: "出國記帳用：自訂匯率，只影響之後的新交易" },
     ],
   },
   {

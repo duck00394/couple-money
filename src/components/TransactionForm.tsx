@@ -3,12 +3,15 @@
 import { useActionState, useMemo, useState } from "react";
 import { deleteTransactionAction, saveTransactionAction } from "@/app/actions/transactions";
 import { formatMoney, parseAmount, toInputString } from "@/lib/money";
+import { CURRENCIES, currencyOf, formatCurrency, minorPerUnit, parseCurrencyAmount } from "@/lib/currency";
+import { toBaseAmount } from "@/server/domain/exchange";
 import { initialCalc, isPending, press, type CalcState } from "@/lib/calc";
 import { computeSplit, type SplitMethod, type SplitRule } from "@/server/domain/split";
 import { normalizeTags } from "@/server/domain/search";
 import { JOINT } from "@/server/domain/purchase";
 import { OwnerChips, TagChips } from "./PurchaseForms";
 import { DomainError } from "@/server/domain/errors";
+import type { ActionState } from "@/server/actions";
 import { Button, cx, DateInput, ErrorText, Field, Input, inputClass } from "./ui";
 import { ArtIcon } from "./ArtIcon";
 import { showToast } from "./Toast";
@@ -32,6 +35,10 @@ export interface TxInitial {
   fundAccountId: string | null;
   tags: string[];
   preorderId?: string | null;
+  /** V14：原始幣別（本位幣交易就是本位幣代碼）。 */
+  currency?: string | null;
+  /** V14：原始幣別的金額（最小單位）；本位幣交易是 null。 */
+  foreignAmount?: number | null;
 }
 
 const METHODS: Array<{ id: Exclude<SplitMethod, "SHARES">; label: string }> = [
@@ -74,6 +81,23 @@ export function TransactionForm(props: {
   /** 從別的頁面帶著特殊返回路徑進來時設 true：只給單一送出鈕，不給「再記一筆」 */
   stayDisabled?: boolean;
   /**
+   * 送出／刪除要呼叫哪個 action。預設是正式模式的 server action。
+   *
+   * 試用模式（`src/demo/`）傳入**瀏覽器端**的函式：簽名與 FormData 契約完全一樣
+   * （都讀 hidden input `payload` 的那包 JSON），所以這 800 行表單一行都不用複製，
+   * 而試用模式也不會有任何一條路通到 server action。
+   */
+  saveAction?: (prev: ActionState, fd: FormData) => Promise<ActionState> | ActionState;
+  deleteAction?: (prev: ActionState, fd: FormData) => Promise<ActionState> | ActionState;
+  /**
+   * V14：帳本本位幣，以及已經設定好匯率的外幣。
+   *
+   * 沒有設定任何外幣匯率時，整個幣別選單**不會出現** —— 平常在台灣記帳的人
+   * 一輩子不用看到它。出國前去設定一次匯率，選單才長出來。
+   */
+  baseCurrency?: string;
+  rates?: Array<{ currency: string; foreignUnits: number; baseMinor: number }>;
+  /**
    * 購買紀錄的作品。每個作品帶著**自己的**角色與商品分類
    * （每個 IP 會出的東西不一樣，不共用一份）。空陣列＝還沒建立任何作品，那一列就不顯示。
    */
@@ -106,9 +130,16 @@ export function TransactionForm(props: {
   };
   const [type, setType] = useState<"EXPENSE" | "INCOME">(initial?.type ?? "EXPENSE");
   // 金額由小計算機驅動：calc.input 就是輸入框裡的字，兩邊永遠一致
-  const [calc, setCalc] = useState<CalcState>(() =>
-    initial ? { ...initialCalc, input: toInputString(initial.amount), replace: false } : initialCalc,
-  );
+  const [calc, setCalc] = useState<CalcState>(() => {
+    if (!initial) return initialCalc;
+    // V14：外幣交易要帶**原幣**金額（當初輸入的 ¥2,500），不是換算後的台幣。
+    // 不然一打開編輯頁，金額欄位看起來就跟自己記的不一樣了。
+    const minor = initial.foreignAmount ?? initial.amount;
+    const code = initial.foreignAmount != null ? initial.currency || "" : "";
+    const per = code ? minorPerUnit(code) : 100;
+    const text = per === 1 ? String(minor) : toInputString(minor);
+    return { ...initialCalc, input: text, replace: false };
+  });
   const amountStr = calc.input === "0" && calc.replace && !initial ? "" : calc.input;
   const setAmountStr = (v: string) => setCalc({ ...initialCalc, input: v === "" ? "0" : v, replace: v === "" });
   const pendingCalc = isPending(calc);
@@ -144,7 +175,43 @@ export function TransactionForm(props: {
     init?.method === "FULL" ? init.participants[0]?.userId ?? me.userId : me.userId,
   );
 
-  const amount = parseAmount(amountStr);
+  /*
+   * V14：幣別與換算。
+   *
+   * amountStr 是使用者在**所選幣別**裡輸入的數字；`amount` 一律是**本位幣**的
+   * 最小單位 —— 分帳預覽、分帳規則、送出的 payload 全部吃 amount，
+   * 所以多幣別對底下那一整套分帳邏輯是透明的。
+   */
+  const baseCurrency = props.baseCurrency ?? "TWD";
+  const rates = props.rates ?? [];
+  const [currency, setCurrency] = useState(initial?.currency || baseCurrency);
+  /*
+   * 匯率只取**兩個數字**出來用，不要把整個 rate 物件往下傳。
+   * props.rates 每次 render 都是新陣列，從裡面 find 出來的物件在 React Compiler 眼中
+   * 是「可能被改動的值」，拿它當 useMemo 的相依就會讓整個元件放棄記憶化優化。
+   * 換成 number 之後就沒有這個問題。
+   */
+  const rateRow = rates.find((r) => r.currency === currency);
+  const rateUnits = rateRow?.foreignUnits ?? 0;
+  const rateBase = rateRow?.baseMinor ?? 0;
+  const isForeign = currency !== baseCurrency && rateUnits > 0 && rateBase > 0;
+  /** 使用者輸入的金額，換算成「所選幣別的最小單位」（日圓沒有小數，台幣有兩位） */
+  const foreignMinor = parseCurrencyAmount(amountStr, currency);
+  /**
+   * 本位幣金額：分帳預覽、分帳規則、送出的 payload 全部吃這個，多幣別對它們是透明的。
+   *
+   * 包在 useMemo 裡，相依全部是基本型別 —— toBaseAmount 在匯率不合法時會丟例外，
+   * 不先記憶化的話 React Compiler 會把它當成可能有副作用而放棄整個元件的優化。
+   */
+  const amount = useMemo(
+    () =>
+      isForeign
+        ? foreignMinor !== null && foreignMinor > 0
+          ? toBaseAmount(foreignMinor, { currency, foreignUnits: rateUnits, baseMinor: rateBase })
+          : null
+        : parseAmount(amountStr),
+    [isForeign, foreignMinor, currency, rateUnits, rateBase, amountStr],
+  );
   const account = accounts.find((a) => a.id === accountId);
   const isShared = account?.ownerId === null;
 
@@ -178,8 +245,10 @@ export function TransactionForm(props: {
 
   // 「再記一筆」成功之後不換頁，所以要自己把表單清乾淨、並換一個 clientRequestId
   // —— 沒換的話第二筆會撞到防重複送出的 idempotency key，變成靜靜地什麼都沒記。
-  const [state, action, pending] = useActionState(async (prev: Awaited<ReturnType<typeof saveTransactionAction>>, fd: FormData) => {
-    const r = await saveTransactionAction(prev, fd);
+  const save = props.saveAction ?? saveTransactionAction;
+  const remove = props.deleteAction ?? deleteTransactionAction;
+  const [state, action, pending] = useActionState(async (prev: ActionState, fd: FormData) => {
+    const r = await save(prev, fd);
     if (r?.ok) {
       showToast(r.ok);
       setClientRequestId(crypto.randomUUID());
@@ -194,11 +263,14 @@ export function TransactionForm(props: {
     }
     return r;
   }, undefined);
-  const [delState, delAction, deleting] = useActionState(deleteTransactionAction, undefined);
+  const [delState, delAction, deleting] = useActionState(remove, undefined);
 
   const payload = JSON.stringify({
     type,
     amount: amount ?? 0,
+    // V14：外幣時 server 會**忽略 amount 自己重算**，這裡送出只是為了讓預覽一致
+    currency,
+    foreignAmount: isForeign ? foreignMinor : null,
     accountId,
     categoryId,
     title,
@@ -279,7 +351,7 @@ export function TransactionForm(props: {
             <span className="tnum truncate text-xs text-stone-400" data-testid="calc-expr">{calc.expr}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-3xl font-bold text-brand-400">$</span>
+            <span className="shrink-0 text-3xl font-bold text-brand-400">{currencyOf(currency).symbol}</span>
             <input
               aria-label="金額"
               name="amountDisplay"
@@ -290,7 +362,40 @@ export function TransactionForm(props: {
               placeholder="0"
               className="amount-lg w-full bg-transparent text-5xl text-stone-800 outline-none placeholder:text-stone-300"
             />
+            {/*
+              幣別選單只在「有設定過外幣匯率」時才出現。
+              平常在台灣記帳的人不該為了一個出國才用得到的欄位多看一樣東西。
+            */}
+            {rates.length > 0 && (
+              <select
+                aria-label="幣別"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                data-testid="tx-currency"
+                className="shrink-0 rounded-xl border-[1.5px] border-line bg-white px-2 py-1.5 text-sm font-semibold text-stone-700 outline-none"
+              >
+                <option value={baseCurrency}>{baseCurrency}</option>
+                {/* 有設定匯率的才列出來 —— 沒匯率就記不了帳，列出來只會讓人撞牆 */}
+                {CURRENCIES.filter((c) => rates.some((r) => r.currency === c.code)).map((c) => (
+                  <option key={c.code} value={c.code}>{c.code}</option>
+                ))}
+              </select>
+            )}
           </div>
+          {/*
+            換算預覽。只有外幣才出現 —— 台幣記帳顯示「NT$500 ≈ NT$500」是多餘的（規格點 8）。
+          */}
+          {isForeign && (
+            <div className="mt-1.5 flex items-baseline justify-between gap-2 border-t border-line pt-1.5">
+              <span className="amount text-[17px] text-stone-700" data-testid="tx-converted">
+                ≈ {amount !== null ? formatMoney(amount) : formatMoney(0)}
+              </span>
+              <span className="truncate text-[11px] text-stone-400">
+                {rateUnits.toLocaleString("en-US")} {currency} ={" "}
+                {formatCurrency(rateBase, baseCurrency, { symbol: false })} {baseCurrency}
+              </span>
+            </div>
+          )}
           {calc.error && <p className="mt-1 text-xs text-red-600" role="alert">{calc.error}</p>}
           {!calc.error && amountStr && !amount && <p className="mt-1 text-xs text-red-600">請輸入正確金額（最多兩位小數）</p>}
           {!calc.error && pendingCalc && <p className="mt-1 text-xs text-brand-600">算式還沒算完，按「＝」得到金額</p>}

@@ -3,7 +3,8 @@ import { ArtIcon } from "@/components/ArtIcon";
 import { SeedStarterButton } from "@/components/PurchaseForms";
 import { Avatar, Card, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
+import { MainBookNotice } from "@/components/BookForms2";
 import { listGroups } from "@/server/services/purchases";
 
 /**
@@ -13,7 +14,7 @@ import { listGroups } from "@/server/services/purchases";
  * 不展開任何角色。歸屬只用一行小字帶過，要篩要進作品裡面。
  */
 export default async function PurchasesPage() {
-  const { ctx } = await getAppContext();
+  const { ctx, isForeignContext, activeBookName } = await getMainBookContext();
   const groups = await listGroups(ctx);
   const all = groups.reduce((a, g) => ({ count: a.count + g.totals.count, amount: a.amount + g.totals.amount }), { count: 0, amount: 0 });
   const nameOf = (id: string | null) => (id === null ? "共同" : ctx.members.find((m) => m.userId === id)?.nickname ?? "?");
@@ -26,6 +27,12 @@ export default async function PurchasesPage() {
         back="/more"
         right={<Link href="/purchases/manage" className="text-[13px] font-semibold text-brand-600">管理分類</Link>}
       />
+      {/* V15：目前在旅遊帳本時，講清楚這一頁是原帳本的資料，而且不會把帳本切走 */}
+      {isForeignContext && (
+        <div className="px-4">
+          <MainBookNotice activeBookName={activeBookName} />
+        </div>
+      )}
       <div className="px-4">
         {groups.length === 0 ? (
           <>

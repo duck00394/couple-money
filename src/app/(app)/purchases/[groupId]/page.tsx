@@ -5,7 +5,7 @@ import { VoidedEntryActions } from "@/components/PurchaseForms";
 import { Avatar, Card, cx, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
 import { DomainError } from "@/server/domain/errors";
 import { JOINT, ownerLabel } from "@/server/domain/purchase";
 import { getGroupDetail, type LevelRow } from "@/server/services/purchases";
@@ -20,7 +20,7 @@ import { getGroupDetail, type LevelRow } from "@/server/services/purchases";
  * 作品這一層由頁面標題決定，所以畫面上不再出現作品選單，每一列也不重複作品名。
  */
 export default async function PurchaseGroupPage({ params, searchParams }: PageProps<"/purchases/[groupId]">) {
-  const { ctx } = await getAppContext();
+  const { ctx } = await getMainBookContext();
   const { groupId } = await params;
   const sp = await searchParams;
   const cat = typeof sp.cat === "string" ? sp.cat : "";

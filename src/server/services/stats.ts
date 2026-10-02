@@ -170,3 +170,23 @@ async function listFundSnapshot(ctx: BookContext) {
   const [real, pending] = await Promise.all([fundBalances(prisma, ctx.book.id, ids), pendingByFund(prisma, ctx.book.id, ids)]);
   return rows.map((f) => ({ ...f, real: real.get(f.id) ?? 0, pending: pending.get(f.id)?.net ?? 0 }));
 }
+
+/**
+ * V15：一本帳本的總支出與筆數（帳本管理頁用）。
+ *
+ * 刻意只收 bookId 而不是 BookContext —— 這一頁要同時顯示**好幾本**帳本的數字，
+ * 包含已結案的；為每一本都 loadContext 一次太浪費。呼叫端已經先用
+ * listMyBooks() 確認過這些 bookId 都是這個使用者的帳本了。
+ */
+export async function bookTotals(bookId: string) {
+  const rows = await prisma.transaction.findMany({
+    where: { bookId, deletedAt: null, status: "POSTED", type: { in: ["EXPENSE", "INCOME", "REFUND"] } },
+    select: { type: true, amount: true },
+  });
+  const by = (t: string) => rows.filter((r) => r.type === t).reduce((a, r) => a + r.amount, 0);
+  return {
+    count: rows.length,
+    expense: by("EXPENSE") - by("REFUND"),
+    income: by("INCOME"),
+  };
+}

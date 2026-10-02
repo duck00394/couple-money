@@ -1,6 +1,7 @@
 import { TransactionForm } from "@/components/TransactionForm";
 import { TxKindTabs } from "@/components/TxKindTabs";
 import { PageHeader } from "@/components/ui";
+import { ClosedBookBanner } from "@/components/BookForms2";
 import { getAppContext } from "@/server/context";
 import { assertCanWrite } from "@/server/services/books";
 import { loadTxFormOptions, recentPresets } from "@/server/txFormData";
@@ -8,6 +9,20 @@ import { loadTxFormOptions, recentPresets } from "@/server/txFormData";
 export default async function NewTransactionPage({ searchParams }: PageProps<"/transactions/new">) {
   const sp = await searchParams;
   const { ctx } = await getAppContext();
+  // V15：已結案的帳本不能記帳。這裡先給一個看得懂的畫面與出路，
+  // 而不是讓 assertCanWrite 丟出來變成一般的錯誤頁（規格點 18）。
+  // server 端的擋法沒有因此變鬆 —— service 層的 assertCanWrite 仍然在，
+  // 就算有人直接送表單也寫不進去。
+  if (!ctx.canWrite) {
+    return (
+      <>
+        <PageHeader title="記一筆" back="/" />
+        <div className="px-4">
+          <ClosedBookBanner bookId={ctx.book.id} name={ctx.book.name} />
+        </div>
+      </>
+    );
+  }
   assertCanWrite(ctx);
   const [options, presets] = await Promise.all([loadTxFormOptions(ctx), recentPresets(ctx)]);
   const fundId = typeof sp.fund === "string" ? sp.fund : null;

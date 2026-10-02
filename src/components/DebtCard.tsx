@@ -3,7 +3,7 @@ import { formatMoney } from "@/lib/money";
 import type { BookContext } from "@/server/services/books";
 import { Avatar, Card } from "./ui";
 
-export function DebtCard({ ctx, debt, compact }: { ctx: BookContext; debt?: { from: string; to: string; amount: number }; compact?: boolean }) {
+export function DebtCard({ ctx, debt, compact, base = "" }: { ctx: BookContext; debt?: { from: string; to: string; amount: number }; compact?: boolean; base?: string }) {
   const partner = ctx.partner;
   if (!partner) {
     return (
@@ -33,7 +33,7 @@ export function DebtCard({ ctx, debt, compact }: { ctx: BookContext; debt?: { fr
         {/* 結算每週會用到一次，別讓它只是一顆白色小膠囊 */}
         {debt && !compact && (
           <Link
-            href="/settle"
+            href={`${base}/settle`}
             className="press shrink-0 rounded-full border-[1.5px] border-stone-800 bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md"
             data-testid="go-settle"
           >

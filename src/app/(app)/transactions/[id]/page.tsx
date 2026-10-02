@@ -185,6 +185,10 @@ export default async function EditTransactionPage({ params }: PageProps<"/transa
           fundAccountId: tx.fundEntry && !tx.fundEntry.deletedAt ? tx.fundEntry.accountId : null,
           tags: tx.tags.map((t) => t.tag.name),
           preorderId: tx.preorderId,
+          // V14：編輯外幣交易時，金額欄位要回到**原幣**（使用者當初輸入的 ¥2,500），
+          // 不是換算後的台幣 —— 不然一打開編輯頁金額就看起來不一樣了。
+          currency: tx.currency,
+          foreignAmount: tx.foreignAmount,
         }}
       />
     </>

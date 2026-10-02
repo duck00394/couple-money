@@ -37,6 +37,10 @@ const payloadSchema = z.object({
     .nullable()
     .optional(),
   tags: z.array(z.string().max(40)).max(20).optional(),
+  // V14：原始幣別與原幣金額。server 端拿到外幣時會**忽略上面的 amount 自己重算**，
+  // 所以前端送什麼 amount 都不影響真正寫進去的本位幣金額。
+  currency: z.string().max(8).nullable().optional(),
+  foreignAmount: z.number().int().nullable().optional(),
   id: z.string().optional(),
   version: z.number().int().optional(),
 });

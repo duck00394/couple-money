@@ -2,6 +2,8 @@ import { randomInt } from "node:crypto";
 import { Prisma, type AccountType } from "@prisma/client";
 import { prisma, lockBook, type Tx } from "../db";
 import { assert, DomainError } from "../domain/errors";
+import { isCurrencyCode } from "@/lib/currency";
+import { fromDateKey } from "@/lib/dates";
 
 export const MAX_COUPLE_MEMBERS = 2;
 const INVITE_DAYS = 7;
@@ -25,7 +27,17 @@ export interface BookMemberView {
 }
 
 export interface BookContext {
-  book: { id: string; name: string; coverEmoji: string; currency: string; status: string };
+  /** baseCurrency = 這本帳本的本位幣。外幣交易都會換算成它再進分錄。 */
+  book: {
+    id: string;
+    name: string;
+    coverEmoji: string;
+    baseCurrency: string;
+    status: string;
+    /** V15：MAIN 是原帳本（不能結案）；TRIP / CUSTOM 可以結案 */
+    type: "MAIN" | "TRIP" | "CUSTOM";
+    closedAt: Date | null;
+  };
   me: BookMemberView;
   members: BookMemberView[];
   partner: BookMemberView | null;
@@ -60,7 +72,15 @@ export async function loadContext(userId: string, bookId: string): Promise<BookC
   const me = members.find((m) => m.userId === userId);
   if (!me) throw new DomainError("BOOK_FORBIDDEN", "你不是這個帳本的成員");
   return {
-    book: { id: book.id, name: book.name, coverEmoji: book.coverEmoji, currency: book.currency, status: book.status },
+    book: {
+      id: book.id,
+      name: book.name,
+      coverEmoji: book.coverEmoji,
+      baseCurrency: book.baseCurrency,
+      status: book.status,
+      type: book.type as "MAIN" | "TRIP" | "CUSTOM",
+      closedAt: book.closedAt,
+    },
     me,
     members,
     partner: members.find((m) => m.userId !== userId && m.role !== "VIEWER") ?? null,
@@ -219,4 +239,201 @@ export async function updateBookSettings(ctx: BookContext, input: { name: string
       data: { nickname },
     }),
   ]);
+}
+
+/* ───────────────────────── V15：帳本系統 ───────────────────────── */
+
+export interface BookListItem {
+  id: string;
+  name: string;
+  type: "MAIN" | "TRIP" | "CUSTOM";
+  status: string;
+  baseCurrency: string;
+  startOn: string | null;
+  endOn: string | null;
+  closedAt: Date | null;
+  isActive: boolean;
+  /** 使用中（ACTIVE）還是歷史紀錄（已結案） */
+  isClosed: boolean;
+}
+
+const dayKey = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+
+/**
+ * 這個使用者的全部帳本。
+ *
+ * 排序刻意固定：原帳本永遠第一個，再來是使用中的旅遊／自訂帳本（新的在前），
+ * 最後才是已結案的。帳本選擇器直接照這個順序畫，不用再排一次。
+ */
+export async function listMyBooks(userId: string): Promise<BookListItem[]> {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const rows = await prisma.bookMember.findMany({
+    where: { userId, status: "ACTIVE", book: { deletedAt: null } },
+    include: { book: true },
+  });
+  return rows
+    .map(({ book }) => ({
+      id: book.id,
+      name: book.name,
+      type: book.type as BookListItem["type"],
+      status: book.status as string,
+      baseCurrency: book.baseCurrency,
+      startOn: dayKey(book.startOn),
+      endOn: dayKey(book.endOn),
+      closedAt: book.closedAt,
+      isActive: book.id === user.activeBookId,
+      isClosed: book.status === "CLOSED",
+    }))
+    .sort((a, b) => {
+      if (a.isClosed !== b.isClosed) return a.isClosed ? 1 : -1;
+      if ((a.type === "MAIN") !== (b.type === "MAIN")) return a.type === "MAIN" ? -1 : 1;
+      return b.id.localeCompare(a.id); // cuid 單調遞增，新的在前
+    });
+}
+
+/** 這個使用者的原帳本。購買紀錄固定掛在它身上。 */
+export async function mainBookId(userId: string): Promise<string | null> {
+  const row = await prisma.bookMember.findFirst({
+    where: { userId, status: "ACTIVE", book: { deletedAt: null, type: "MAIN" } },
+    orderBy: { joinedAt: "asc" },
+  });
+  return row?.bookId ?? null;
+}
+
+/**
+ * 切換目前操作的帳本。
+ *
+ * **一定要先驗 membership** —— client 傳什麼 bookId 都不能相信（規格點 28）。
+ * 已結案的帳本也可以切進去看（唯讀），擋寫入的是 canWrite，不是這裡。
+ */
+export async function switchBook(userId: string, bookId: string) {
+  const member = await prisma.bookMember.findFirst({
+    where: { userId, bookId, status: "ACTIVE", book: { deletedAt: null } },
+  });
+  assert(member, "BOOK_FORBIDDEN", "你不是這個帳本的成員");
+  await prisma.user.update({ where: { id: userId }, data: { activeBookId: bookId } });
+  return bookId;
+}
+
+export interface NewBookInput {
+  name: string;
+  type: "TRIP" | "CUSTOM";
+  /** 不填就沿用原帳本的本位幣 */
+  baseCurrency?: string | null;
+  startOn?: string | null;
+  endOn?: string | null;
+  note?: string | null;
+}
+
+/**
+ * 建立第二本（以後的）帳本。
+ *
+ * 跟 onboarding 的 `createBook()` 是**不同的路徑**，差別很重要：
+ *   * 成員直接沿用目前帳本的兩個人（不會要另一半再被邀請一次）
+ *   * 不建新的 Couple —— 那是「這段關係」的紀錄，一趟旅行不是一段新關係
+ *   * 帳戶只建最小一組（每人一個錢包 + 共同），**不複製真實銀行帳戶**，
+ *     不然餘額會變成假的（規格點 21）
+ *   * 分類複製目前帳本「還在用」的那些，用起來像共用（Category 是 bookId scoped，
+ *     要真共用得改 schema，那會踩到「不要為了帳本功能重寫既有 domain」）
+ */
+export async function createSecondaryBook(ctx: BookContext, userId: string, input: NewBookInput) {
+  assertCanWrite(ctx);
+  const name = input.name.trim();
+  assert(name.length >= 1 && name.length <= 30, "BOOK_NAME", "帳本名稱需為 1～30 個字");
+  assert(input.type === "TRIP" || input.type === "CUSTOM", "BOOK_TYPE", "帳本類型不正確");
+  const currency = (input.baseCurrency || ctx.book.baseCurrency).toUpperCase();
+  assert(isCurrencyCode(currency), "BOOK_CURRENCY", "不支援的幣別");
+  const note = (input.note ?? "").trim().slice(0, 200) || null;
+  const start = input.startOn ? fromDateKey(input.startOn) : null;
+  const end = input.endOn ? fromDateKey(input.endOn) : null;
+  assert(!start || !end || start <= end, "BOOK_DATE", "結束日期不能早於開始日期");
+
+  return prisma.$transaction(async (tx) => {
+    const book = await tx.book.create({
+      data: {
+        name,
+        type: input.type,
+        baseCurrency: currency,
+        startOn: start,
+        endOn: end,
+        note,
+        createdById: userId,
+      },
+    });
+
+    // 成員照搬：兩個人、同樣的暱稱與角色
+    const members = await tx.bookMember.findMany({ where: { bookId: ctx.book.id, status: "ACTIVE" } });
+    for (const m of members) {
+      await tx.bookMember.create({
+        data: { bookId: book.id, userId: m.userId, role: m.role, nickname: m.nickname, status: "ACTIVE" },
+      });
+      // 每個人一個錢包（記「誰付的」最少需要這個）
+      await tx.account.create({
+        data: { bookId: book.id, ownerId: m.userId, name: `${m.nickname}的錢包`, type: "CASH" as AccountType, createdById: userId, sortOrder: 0 },
+      });
+    }
+    await tx.account.create({
+      data: { bookId: book.id, ownerId: null, name: "共同", type: "JOINT" as AccountType, createdById: userId, sortOrder: 10 },
+    });
+
+    // 分類：複製目前帳本還在用的那些（名稱、圖示、順序一樣）
+    const cats = await tx.category.findMany({
+      where: { bookId: ctx.book.id, isArchived: false },
+      orderBy: [{ kind: "asc" }, { sortOrder: "asc" }],
+    });
+    if (cats.length > 0) {
+      await tx.category.createMany({
+        data: cats.map((c) => ({ bookId: book.id, kind: c.kind, name: c.name, icon: c.icon, sortOrder: c.sortOrder })),
+      });
+    } else {
+      await createDefaultCategories(tx, book.id);
+    }
+
+    await tx.auditLog.create({
+      data: { bookId: book.id, actorId: userId, action: "CREATE", entityType: "Book", entityId: book.id, after: { name, type: input.type } },
+    });
+    return book;
+  });
+}
+
+/**
+ * 結案。
+ *
+ * **原帳本永遠不能結案**（規格點 14）。結案不刪任何資料 —— 只是把 status 改掉，
+ * 而 canWrite 本來就要求 ACTIVE，所以之後所有財務寫入會被既有的 assertCanWrite 擋下來。
+ */
+export async function closeBook(ctx: BookContext, userId: string) {
+  assertCanWrite(ctx);
+  const book = await prisma.book.findUniqueOrThrow({ where: { id: ctx.book.id } });
+  assert(book.type !== "MAIN", "BOOK_MAIN_CLOSE", "原帳本不能結案");
+  assert(book.status === "ACTIVE", "BOOK_NOT_ACTIVE", "這本帳本已經結案了");
+  await prisma.$transaction(async (tx) => {
+    await tx.book.update({ where: { id: book.id }, data: { status: "CLOSED", closedAt: new Date() } });
+    await tx.auditLog.create({
+      data: { bookId: book.id, actorId: userId, action: "UPDATE", entityType: "Book", entityId: book.id, after: { status: "CLOSED" } },
+    });
+  });
+  // 結案後把目前帳本切回原帳本，不然使用者會停在一本動不了的帳本上
+  const main = await mainBookId(userId);
+  if (main) await switchBook(userId, main);
+  return main;
+}
+
+/**
+ * 重新開啟。回到使用中的帳本，並且**自動切換過去**（規格點 17）。
+ * 呼叫端要負責把「會切過去」這件事講給使用者聽。
+ */
+export async function reopenBook(userId: string, bookId: string) {
+  const member = await prisma.bookMember.findFirst({ where: { userId, bookId, status: "ACTIVE" } });
+  assert(member, "BOOK_FORBIDDEN", "你不是這個帳本的成員");
+  const book = await prisma.book.findFirstOrThrow({ where: { id: bookId, deletedAt: null } });
+  assert(book.status === "CLOSED", "BOOK_NOT_CLOSED", "這本帳本沒有結案");
+  await prisma.$transaction(async (tx) => {
+    await tx.book.update({ where: { id: bookId }, data: { status: "ACTIVE", closedAt: null } });
+    await tx.auditLog.create({
+      data: { bookId, actorId: userId, action: "UPDATE", entityType: "Book", entityId: bookId, after: { status: "ACTIVE" } },
+    });
+  });
+  await switchBook(userId, bookId);
+  return bookId;
 }

@@ -4,7 +4,7 @@ import { AddFromTransactionForm, AddManualForm } from "@/components/PurchaseForm
 import { Card, cx, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
 import { listAddableTransactions, optionsForForm, suggestForTransaction } from "@/server/services/purchases";
 
 /**
@@ -14,7 +14,7 @@ import { listAddableTransactions, optionsForForm, suggestForTransaction } from "
  * 從首頁進來就要先選。歸屬兩種情況都要選——頁面脈絡給不了它。
  */
 export default async function NewPurchasePage({ searchParams }: PageProps<"/purchases/new">) {
-  const { ctx } = await getAppContext();
+  const { ctx } = await getMainBookContext();
   const sp = await searchParams;
   const fixedGroupId = typeof sp.group === "string" ? sp.group : undefined;
   const from = typeof sp.tx === "string" ? sp.tx : "";

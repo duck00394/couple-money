@@ -6,6 +6,9 @@ import { SuggestBar } from "@/components/PurchaseForms";
 import { Badge, Card, Empty, SectionTitle, TwoPartProgress } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
 import { getAppContext } from "@/server/context";
+import { listMyBooks } from "@/server/services/books";
+import { BookSwitcher } from "@/components/BookSwitcher";
+import { ClosedBookBanner } from "@/components/BookForms2";
 import { listFunds } from "@/server/services/funds";
 import { getBalances, listTransactions, monthSummary } from "@/server/services/ledger";
 import { suggestForTransaction } from "@/server/services/purchases";
@@ -28,7 +31,9 @@ import { ArtIcon, ArtImage, ArtTile } from "@/components/ArtIcon";
  */
 export default async function DashboardPage({ searchParams }: PageProps<"/">) {
   const suggestSp = await searchParams;
-  const { ctx } = await getAppContext();
+  const { ctx, user } = await getAppContext();
+  const books = await listMyBooks(user.id);
+  const currentBook = books.find((b) => b.id === ctx.book.id) ?? books[0];
   await applyMissedPenalties(ctx);
   const now = new Date();
   const todayKey = toDateKey(now);
@@ -72,6 +77,7 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
 
   return (
     <div className="px-4 pt-5">
+      {ctx.book.status === "CLOSED" && <ClosedBookBanner bookId={ctx.book.id} name={ctx.book.name} />}
       {suggestion && (
         <SuggestBar suggestion={{ ...suggestion, transactionId: suggestTxId }} dismissTo="/" />
       )}
@@ -79,8 +85,10 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
       <header className="-mx-4 -mt-5 mb-4">
         <div className="relative h-[148px] overflow-hidden border-b-2 border-stone-800">
           <ArtImage src="/assets/ramen-hero.png" alt="場景插畫" className="h-full w-full object-cover object-center" />
-          <span className="absolute left-3 top-3 rounded-[10px] border-2 border-stone-800 bg-brand-500 px-2.5 py-1 text-[13px] font-semibold tracking-wide text-white shadow-md">
-            {ctx.book.name}
+          {/* V15：帳本選擇器。位置就是原本顯示帳本名稱的地方 —— 一眼看得到目前在哪本，
+              但不佔畫面（規格點 7、26）。 */}
+          <span className="absolute left-3 top-3 max-w-[60%]">
+            <BookSwitcher books={books} current={currentBook} />
           </span>
           <Link
             href="/more"

@@ -1,5 +1,5 @@
 import { Card, Empty, PageHeader, SectionTitle } from "@/components/ui";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
 import { trialRun } from "@/server/services/purchases";
 
 /**
@@ -9,7 +9,7 @@ import { trialRun } from "@/server/services/purchases";
  * 這一頁是跨全部作品的，所以落點會寫出「作品 / 角色」——那是必要資訊，不是重複。
  */
 export default async function PurchaseTrialPage() {
-  const { ctx } = await getAppContext();
+  const { ctx } = await getMainBookContext();
   const rows = await trialRun(ctx);
   const hits = rows.filter((r) => r.hit);
   const misses = rows.filter((r) => !r.hit);

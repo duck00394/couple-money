@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ArtIcon } from "./ArtIcon";
 import { formatMoney } from "@/lib/money";
+import { formatCurrency } from "@/lib/currency";
+import { allocateForeign, rateLabel } from "@/server/domain/exchange";
 import { dateHeading, hasTimeOfDay, toDateKey, toTimeKey } from "@/lib/dates";
 import { TX_TYPE_LABEL, type TxType } from "@/server/domain/ledger";
 import type { BookContext } from "@/server/services/books";
@@ -15,6 +17,11 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
   const label = tx.type === "TRANSFER" && tx.sourceType === "REWARD_DEPOSIT" ? "任務獎金入金（轉帳）" : TX_TYPE_LABEL[tx.type as TxType];
   const countsAsMoney = tx.type === "EXPENSE" || tx.type === "INCOME" || tx.type === "REFUND";
   const fund = tx.fundEntry && !tx.fundEntry.deletedAt ? tx.fundEntry : null;
+  // 外幣交易：把各人的本位幣負擔依比例攤回原幣（加總保證等於原幣總額）
+  const foreignShares =
+    tx.foreignAmount != null && tx.currency && tx.splits.length > 0
+      ? allocateForeign(tx.foreignAmount, tx.splits.map((s) => Math.abs(s.amount)))
+      : null;
   return (
     <Card className="space-y-3 text-sm" data-testid="tx-detail">
       <div className="flex items-start justify-between gap-3">
@@ -27,7 +34,29 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
             {(hasTimeOfDay(tx.occurredAt) || tx.type === "TRANSFER" || tx.type === "REFUND") && ` ${toTimeKey(tx.occurredAt)}`}
           </p>
         </div>
-        <p className="shrink-0 text-2xl font-bold">{formatMoney(tx.amount)}</p>
+        {/*
+          V14：外幣交易把**原幣金額當主角**，台幣換算放小字。
+          出國回來看帳的時候，「¥2,500」才是有記憶點的那個數字（規格點 13）。
+          匯率也一起寫出來，不然之後匯率設定改了，使用者會看不懂這筆為什麼是這個數。
+        */}
+        {tx.foreignAmount != null && tx.currency ? (
+          <div className="shrink-0 text-right">
+            <p className="text-2xl font-bold" data-testid="tx-foreign">
+              {formatCurrency(tx.foreignAmount, tx.currency)}
+            </p>
+            <p className="text-sm text-stone-600">≈ {formatMoney(tx.amount)}</p>
+            {tx.rateForeignUnits != null && tx.rateBaseMinor != null && (
+              <p className="mt-0.5 text-[11px] text-stone-400" data-testid="tx-rate">
+                {rateLabel(
+                  { currency: tx.currency, foreignUnits: tx.rateForeignUnits, baseMinor: tx.rateBaseMinor },
+                  ctx.book.baseCurrency,
+                )}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="shrink-0 text-2xl font-bold">{formatMoney(tx.amount)}</p>
+        )}
       </div>
       {!countsAsMoney && (
         <p className="rounded-xl bg-sky-50 px-3 py-2 text-xs text-sky-800">
@@ -54,8 +83,20 @@ export function TxDetail({ tx, ctx, related }: { tx: TxListItem; ctx: BookContex
         <div>
           <p className="mb-1 text-xs font-semibold text-stone-500">{tx.type === "REFUND" ? "退款減少的負擔" : "各自負擔"}</p>
           <ul className="space-y-1">
-            {tx.splits.map((s) => (
-              <li key={s.id} className="flex justify-between"><span>{who(ctx, s.userId)}</span><span>{formatMoney(Math.abs(s.amount))}</span></li>
+            {tx.splits.map((s, i) => (
+              <li key={s.id} className="flex justify-between">
+                <span>{who(ctx, s.userId)}</span>
+                <span>
+                  {/*
+                    V14：外幣交易連分帳也要看得到原幣（規格點 14）。
+                    分帳本身是在本位幣上算的（既有 domain 一行都沒改），這裡只是把它
+                    依比例攤回原幣顯示；用 allocateForeign 分配，所以各人加起來
+                    一定剛好等於原幣總額，不會因為四捨五入湊不回 ¥10,000。
+                  */}
+                  {foreignShares && <span className="mr-1.5 text-stone-500">{formatCurrency(foreignShares[i], tx.currency!)}</span>}
+                  {formatMoney(Math.abs(s.amount))}
+                </span>
+              </li>
             ))}
           </ul>
         </div>

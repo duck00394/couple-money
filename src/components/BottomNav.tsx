@@ -20,8 +20,11 @@ const items = [
   { href: "/stats", label: "統計", icon: "stats", match: (p: string) => p.startsWith("/stats") },
 ];
 
-export function BottomNav() {
-  const path = usePathname();
+/** `base` 給試用模式用（"/demo"）；正式模式不傳，行為與原本完全一樣。 */
+export function BottomNav({ base = "" }: { base?: string } = {}) {
+  const full = usePathname();
+  // 比對時先把前綴拿掉，/demo/tasks 才會對到「任務」那一格
+  const path = base && full.startsWith(base) ? full.slice(base.length) || "/" : full;
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-20 mx-auto max-w-md border-t-2 border-stone-800 bg-white">
       <ul className="grid h-16 grid-cols-5">
@@ -30,7 +33,7 @@ export function BottomNav() {
           return (
             <li key={href}>
               <Link
-                href={href}
+                href={`${base}${href}`}
                 className="group flex h-full flex-col items-center justify-center gap-1 text-[11px]"
                 aria-current={active ? "page" : undefined}
               >

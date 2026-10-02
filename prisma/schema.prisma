@@ -50,8 +50,20 @@ model Session {
 
 enum BookStatus {
   ACTIVE
+  /// V15：結案。旅遊結束後移到「歷史紀錄」，資料全部保留但不能再新增財務紀錄。
+  /// 擋下來的機制不是新寫的 —— canWrite 本來就要求 status === ACTIVE。
+  CLOSED
   READ_ONLY // 解除綁定後轉為唯讀
   ARCHIVED // 匯出後關閉
+}
+
+/// V15：帳本類型。
+/// MAIN 是這對情侶的原帳本，永遠只有一本、永遠不能結案；
+/// TRIP / CUSTOM 可以有很多本，可以結案與重新開啟。
+enum BookType {
+  MAIN
+  TRIP
+  CUSTOM
 }
 
 enum MemberRole {
@@ -70,9 +82,18 @@ model Book {
   name             String
   coverEmoji       String     @default("couple")
   coverColor       String     @default("#FCE7E4")
-  currency         String     @default("TWD")
+  /// 這本帳本最後統一用哪個幣別做統計與結算。外幣交易都會換算成它再進分錄。
+  baseCurrency     String     @default("TWD")
   timeZone         String     @default("Asia/Taipei")
   status           BookStatus @default(ACTIVE)
+  /// V15：帳本類型。既有帳本在 migration 裡全部設成 MAIN。
+  type             BookType   @default(MAIN)
+  /// V15：結案時間。null = 還沒結案。
+  closedAt         DateTime?
+  /// V15：旅遊帳本的起訖日（可選，只是給人看的，不影響任何計算）
+  startOn          DateTime?  @db.Date
+  endOn            DateTime?  @db.Date
+  note             String?
   defaultSplitRule Json? // SplitRule；null = 全員平均
   createdById      String
   createdAt        DateTime   @default(now())
@@ -109,6 +130,9 @@ model Book {
   // V12：購買紀錄
   purchaseGroups  PurchaseGroup[]
   purchaseEntries PurchaseEntry[]
+
+  // V14：多幣別自訂匯率
+  exchangeRates ExchangeRate[]
 }
 
 model Couple {
@@ -284,7 +308,17 @@ model Transaction {
   amount             Int // 實際支付金額（> 0）
   originalAmount     Int? // 原價
   discountAmount     Int               @default(0) // 折扣／優惠券
+  /// 這筆交易**原始**的幣別。等於帳本本位幣時就是一般的本國消費。
+  /// 注意：amount / payments / splits 一律是**本位幣**，這裡只是原始幣別的標記。
   currency           String            @default("TWD")
+  /// 原始幣別的金額（該幣別的最小單位）。null = 這筆就是本位幣，沒有換算。
+  /// 刻意不叫 originalAmount —— 那個名字上面已經被「原價（折扣前）」用掉了。
+  foreignAmount      Int?
+  /// 建立這筆交易時使用的匯率，原樣鎖在這一列上：
+  ///   rateForeignUnits = 100、rateBaseMinor = 2150 就是「100 JPY = 21.5 TWD」。
+  /// 之後使用者改匯率設定**不會動到這裡**，所以歷史交易的金額永遠不變。
+  rateForeignUnits   Int?
+  rateBaseMinor      Int?
   title              String?
   merchant           String?
   location           String?
@@ -365,6 +399,28 @@ model TransactionTag {
   tag           Tag         @relation(fields: [tagId], references: [id])
 
   @@id([transactionId, tagId])
+}
+
+/// 帳本自訂匯率。只影響**之後新增**的交易 —— 歷史交易的匯率鎖在 Transaction 上。
+///
+/// 存法刻意跟畫面一致：「100 JPY = 21.5 TWD」就存成 foreignUnits = 100、baseMinor = 2150，
+/// 而不是 0.215。這樣不會有來回轉換的誤差，顯示也不用再組一次。
+model ExchangeRate {
+  id           String   @id @default(cuid())
+  bookId       String
+  book         Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  /// 外幣代碼（ISO 4217），例如 "JPY"
+  currency     String
+  /// 匯率左邊：幾「單位」外幣
+  foreignUnits Int
+  /// 匯率右邊：等於多少本位幣的最小單位
+  baseMinor    Int
+  updatedById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([bookId, currency])
+  @@index([bookId])
 }
 
 model Settlement {

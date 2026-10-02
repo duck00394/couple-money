@@ -30,6 +30,9 @@ import { v9UxRound } from "./v9-ux-round";
 import { v10GuardsAndFlow } from "./v10-guards-and-flow";
 import { v11PreorderOwnerSplit } from "./v11-preorder-owner-split";
 import { v12PurchaseLog } from "./v12-purchase-log";
+import { v13Demo } from "./v13-demo";
+import { v14Currency } from "./v14-currency";
+import { v15Books } from "./v15-books";
 
 /** 後續階段的流程依序接在 Phase 1 之後執行（兩人帳號延續使用）。 */
 const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
@@ -55,8 +58,13 @@ const PHASES: Array<[string, (a: Page, b: Page) => Promise<void>]> = [
   ["v10 guards+flow", v10GuardsAndFlow],
   ["v11 preorder owner split", v11PreorderOwnerSplit],
   ["v12 purchase log", v12PurchaseLog],
+  ["v14 currency", v14Currency],
+  ["v15 books", v15Books],
   ["icon text", async (a) => iconText(a)],
   ["ux audit", async (a) => uxAudit(a)],
+  // v13 必須放最後：它會清掉 cookie 來驗證「不用登入也能進 /demo」，
+  // 之後的階段就不再是登入狀態了。
+  ["v13 demo", async (a) => v13Demo(a)],
 ];
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
@@ -94,7 +102,30 @@ const debtText = async (page: Page) => {
 };
 
 async function main() {
-  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
+  const browser = await chromium.launch({
+    executablePath: process.env.CHROMIUM_PATH || undefined,
+    /**
+     * 關掉 Chromium 的背景連線。
+     *
+     * 在沙箱／CI 這種只開放特定網域的環境裡，Chromium 會不斷去敲
+     * content-autofill.googleapis.com、www.google.com 等等，全部被 egress proxy 擋掉。
+     * 跑完整套（20 幾個階段、好幾分鐘）時這些失敗的 socket 會累積到把瀏覽器整個搞掛，
+     * 症狀是中途冒出「Target page, context or browser has been closed」，
+     * 而且每次掛的階段都不一樣 —— 看起來像測試不穩，其實是環境。
+     * 這些服務對測試本身毫無用處，關掉就好。
+     */
+    args: [
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-domain-reliability",
+      "--disable-sync",
+      "--disable-features=AutofillServerCommunication,OptimizationHints,Translate,MediaRouter,InterestFeedContentSuggestions",
+      "--safebrowsing-disable-auto-update",
+      "--no-default-browser-check",
+      "--no-first-run",
+      "--metrics-recording-only",
+    ],
+  });
   // 兩支手機故意用不同尺寸：小艾 iPhone 13（390×664）、阿本 iPhone SE（320×568）
   const phone = { ...devices["iPhone 13"], locale: "zh-TW", timezoneId: "Asia/Taipei" };
   const smallPhone = { ...devices["iPhone SE"], locale: "zh-TW", timezoneId: "Asia/Taipei" };

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
 import { parseAmount } from "@/lib/money";
 import { toOwnerId } from "@/server/domain/purchase";
 import {
@@ -25,7 +25,7 @@ const target = (form: FormData) => ({
 
 export async function createGroupAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await createGroup(ctx, { name: str(form, "name"), icon: str(form, "icon") });
     return { ok: "已新增作品" };
   });
@@ -35,7 +35,7 @@ export async function createGroupAction(_: ActionState, form: FormData): Promise
 
 export async function updateGroupAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await updateGroup(ctx, str(form, "id"), { name: str(form, "name"), icon: str(form, "icon") });
     return { ok: "已更新" };
   });
@@ -45,7 +45,7 @@ export async function updateGroupAction(_: ActionState, form: FormData): Promise
 
 export async function deleteGroupAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await deleteGroup(ctx, str(form, "id"));
   });
   if (state?.error) return state;
@@ -57,7 +57,7 @@ export async function deleteGroupAction(_: ActionState, form: FormData): Promise
 
 export async function createTagAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await createTag(ctx, str(form, "groupId"), str(form, "name"));
     return { ok: "已新增角色" };
   });
@@ -67,7 +67,7 @@ export async function createTagAction(_: ActionState, form: FormData): Promise<A
 
 export async function renameTagAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await renameTag(ctx, str(form, "id"), str(form, "name"));
     return { ok: "已改名" };
   });
@@ -77,7 +77,7 @@ export async function renameTagAction(_: ActionState, form: FormData): Promise<A
 
 export async function deleteTagAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     const r = await deleteTag(ctx, str(form, "id"));
     return {
       ok: r.movedCount > 0
@@ -93,7 +93,7 @@ export async function deleteTagAction(_: ActionState, form: FormData): Promise<A
 
 export async function addKeywordAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await addKeyword(ctx, {
       groupId: str(form, "groupId"),
       tagId: str(form, "tagId") || null,
@@ -108,7 +108,7 @@ export async function addKeywordAction(_: ActionState, form: FormData): Promise<
 
 export async function deleteKeywordAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await deleteKeyword(ctx, str(form, "id"));
   });
   revalidatePath("/", "layout");
@@ -119,7 +119,7 @@ export async function deleteKeywordAction(_: ActionState, form: FormData): Promi
 
 export async function addFromTransactionAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await addFromTransaction(ctx, str(form, "transactionId"), target(form));
   });
   if (state?.error) return state;
@@ -130,7 +130,7 @@ export async function addFromTransactionAction(_: ActionState, form: FormData): 
 
 export async function addManualAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await addManual(ctx, {
       ...target(form),
       title: str(form, "title"),
@@ -145,7 +145,7 @@ export async function addManualAction(_: ActionState, form: FormData): Promise<A
 
 export async function updateEntryAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     const amount = parseAmount(str(form, "amount"));
     await updateEntry(ctx, str(form, "id"), {
       ...target(form),
@@ -161,7 +161,7 @@ export async function updateEntryAction(_: ActionState, form: FormData): Promise
 
 export async function removeEntryAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await removeEntry(ctx, str(form, "id"));
   });
   if (state?.error) return state;
@@ -172,7 +172,7 @@ export async function removeEntryAction(_: ActionState, form: FormData): Promise
 
 export async function convertToManualAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await convertToManual(ctx, str(form, "id"));
     return { ok: "已轉成手動紀錄" };
   });
@@ -184,7 +184,7 @@ export async function convertToManualAction(_: ActionState, form: FormData): Pro
 
 export async function createCategoryAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await createCategory(ctx, str(form, "groupId"), str(form, "name"));
     return { ok: "已新增商品分類" };
   });
@@ -194,7 +194,7 @@ export async function createCategoryAction(_: ActionState, form: FormData): Prom
 
 export async function renameCategoryAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     await renameCategory(ctx, str(form, "id"), str(form, "name"));
     return { ok: "已改名" };
   });
@@ -204,7 +204,7 @@ export async function renameCategoryAction(_: ActionState, form: FormData): Prom
 
 export async function deleteCategoryAction(_: ActionState, form: FormData): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     const r = await deleteCategory(ctx, str(form, "id"));
     return { ok: r.movedCount > 0 ? `已刪除，${r.movedCount} 筆移到「${r.fallbackName}」` : "已刪除" };
   });
@@ -215,7 +215,7 @@ export async function deleteCategoryAction(_: ActionState, form: FormData): Prom
 /** 一鍵建立預設作品與角色（吉伊卡哇、排球少年）。只在還沒有任何作品時有用。 */
 export async function seedStarterAction(): Promise<ActionState> {
   const state = await toActionState(async () => {
-    const { ctx } = await getAppContext();
+    const { ctx } = await getMainBookContext();
     const r = await seedStarter(ctx);
     return { ok: r.created > 0 ? `已建立 ${r.created} 個作品` : "已經有作品了" };
   });

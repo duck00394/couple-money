@@ -3,7 +3,7 @@ import { ArtIcon } from "@/components/ArtIcon";
 import { NewGroupForm } from "@/components/PurchaseForms";
 import { Card, Empty, LinkButton, PageHeader, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/money";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
 import { listGroups } from "@/server/services/purchases";
 
 /**
@@ -13,7 +13,7 @@ import { listGroups } from "@/server/services/purchases";
  * 歸屬是每一筆購買紀錄自己的欄位，不是分類。
  */
 export default async function PurchaseManagePage() {
-  const { ctx } = await getAppContext();
+  const { ctx } = await getMainBookContext();
   const groups = await listGroups(ctx);
 
   return (

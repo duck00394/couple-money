@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { CategoryRow, GroupSettingsForm, KeywordBox, NewCategoryForm, NewTagForm, TagRow } from "@/components/PurchaseForms";
 import { Card, PageHeader, SectionTitle } from "@/components/ui";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
 import { prisma } from "@/server/db";
 import { getGroupDetail, listGroups } from "@/server/services/purchases";
 
@@ -13,7 +13,7 @@ import { getGroupDetail, listGroups } from "@/server/services/purchases";
  * 不是等使用者按了才跳錯誤。
  */
 export default async function PurchaseManageGroupPage({ params }: PageProps<"/purchases/manage/[groupId]">) {
-  const { ctx } = await getAppContext();
+  const { ctx } = await getMainBookContext();
   const { groupId } = await params;
   const groups = await listGroups(ctx);
   const summary = groups.find((g) => g.id === groupId);

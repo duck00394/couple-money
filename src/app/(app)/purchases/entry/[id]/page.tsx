@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { EditEntryForm } from "@/components/PurchaseForms";
 import { PageHeader } from "@/components/ui";
 import { toDateKey } from "@/lib/dates";
-import { getAppContext } from "@/server/context";
+import { getMainBookContext } from "@/server/context";
 import { getEntry, optionsForForm } from "@/server/services/purchases";
 
 /**
@@ -12,7 +12,7 @@ import { getEntry, optionsForForm } from "@/server/services/purchases";
  * 但作品、歸屬、角色照樣可以改。手動的：全部都能改。
  */
 export default async function PurchaseEntryPage({ params }: PageProps<"/purchases/entry/[id]">) {
-  const { ctx } = await getAppContext();
+  const { ctx } = await getMainBookContext();
   const { id } = await params;
   const [entry, groups] = await Promise.all([getEntry(ctx, id), optionsForForm(ctx)]);
   if (!entry) notFound();

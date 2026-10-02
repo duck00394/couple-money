@@ -10,6 +10,8 @@ import { assertCanWrite, type BookContext } from "./books";
 import { syncFundExpense } from "./funds";
 import { BURDEN_TYPES, normalizeTags, totalsFromGroups } from "../domain/search";
 import { TX_INCLUDE } from "./search";
+import { toBaseAmount } from "../domain/exchange";
+import { rateFor } from "./rates";
 import { assertAccountsEarmarkBacked, assertTransferCancelable, refundedAmount } from "./transfers";
 import { accountFreeAmount } from "./funds";
 import { detachReceipts } from "./receipts";
@@ -48,24 +50,10 @@ export async function getBalances(ctx: BookContext, client: Client = prisma): Pr
 
 // ───────────────────────── 帳戶 ─────────────────────────
 
-export const ACCOUNT_TYPES = ["CASH", "BANK", "CREDIT_CARD", "E_WALLET", "JOINT", "OTHER"] as const;
-export const ACCOUNT_TYPE_LABEL: Record<AccountType, string> = {
-  CASH: "現金",
-  BANK: "銀行帳戶",
-  CREDIT_CARD: "信用卡",
-  E_WALLET: "電子支付",
-  JOINT: "共同帳戶",
-  OTHER: "其他",
-};
-/** 帳戶類型的 icon key（見 `src/lib/icons.ts`），不是 emoji。 */
-export const ACCOUNT_TYPE_ICON: Record<AccountType, string> = {
-  CASH: "banknote",
-  BANK: "landmark",
-  CREDIT_CARD: "credit-card",
-  E_WALLET: "smartphone",
-  JOINT: "couple",
-  OTHER: "wallet",
-};
+// 帳戶類型的文案與圖示搬到 `src/lib/accounts.ts`（純資料、不相依 Prisma），
+// 這樣 Client Component 也能用。這裡原樣 re-export，既有的 import 路徑不受影響。
+export { ACCOUNT_TYPES, ACCOUNT_TYPE_LABEL, ACCOUNT_TYPE_ICON } from "@/lib/accounts";
+import { ACCOUNT_TYPES } from "@/lib/accounts";
 
 export async function listAccounts(ctx: BookContext, opts: { includeInactive?: boolean } = {}) {
   const [accounts, balances] = await Promise.all([
@@ -256,6 +244,15 @@ export interface TransactionInput {
   recurringDueDate?: string | null;
   /** V5：這筆付款屬於哪一張預購單（只是關聯，金額計算完全不變） */
   preorderId?: string | null;
+  /**
+   * V14：原始幣別。不填或等於本位幣 = 一般的本國消費，行為跟以前完全一樣。
+   *
+   * 填了外幣時，`amount` 會被**忽略並重算** —— 本位幣金額一律由
+   * foreignAmount × 當下匯率推導，呼叫端不可能傳進一個跟匯率對不起來的數字。
+   */
+  currency?: string | null;
+  /** V14：原始幣別的金額（該幣別的最小單位）。只有 currency 是外幣時才會用到。 */
+  foreignAmount?: number | null;
 }
 
 /** 設定交易的標籤（同帳本同名標籤共用一筆 Tag）。 */
@@ -271,6 +268,17 @@ export async function setTags(tx: Tx, bookId: string, transactionId: string, tag
 
 async function validateInput(tx: Tx, ctx: BookContext, input: TransactionInput, keepCategoryId?: string | null) {
   assert(input.type === "EXPENSE" || input.type === "INCOME", "TX_TYPE", "不支援的記帳類型");
+
+  /*
+   * V14：先把幣別與匯率決定好。
+   *
+   * 外幣的情況下，本位幣金額是**算出來的**，不是呼叫端傳進來的 —— 所以不可能
+   * 出現「amount 跟 foreignAmount × 匯率對不起來」的資料。算完之後這筆交易的
+   * 匯率就鎖住了，之後使用者改匯率設定不會回頭動它。
+   */
+  const money = await resolveMoney(tx, ctx, input);
+  input = { ...input, amount: money.amount };
+
   assert(Number.isSafeInteger(input.amount) && input.amount > 0 && input.amount <= MAX_AMOUNT, "TX_AMOUNT", "請輸入正確的金額");
   assert(input.title.length <= 50, "TX_TITLE", "名稱最多 50 個字");
   assert(input.note.length <= 500, "TX_NOTE", "備註最多 500 個字");
@@ -303,7 +311,36 @@ async function validateInput(tx: Tx, ctx: BookContext, input: TransactionInput, 
     [{ account: { id: account.id, ownerId: account.ownerId }, amount: input.amount }],
     input.split,
   );
-  return { occurredAt, lines };
+  return { occurredAt, lines, money };
+}
+
+/**
+ * V14：決定這筆交易的幣別、匯率與本位幣金額。
+ *
+ * 本位幣（或沒填幣別）→ 完全照舊：amount 就是使用者輸入的數字，外幣欄位全部 null。
+ * 外幣 → 讀帳本目前設定的匯率，算出本位幣金額，並把匯率原樣鎖在這筆交易上。
+ */
+async function resolveMoney(tx: Tx, ctx: BookContext, input: TransactionInput) {
+  const rate = await rateFor(ctx, input.currency, tx);
+  if (!rate) {
+    // 本位幣：foreignAmount / 匯率都留 null，讀取端據此判斷「這筆不是外幣」
+    return {
+      amount: input.amount,
+      currency: ctx.book.baseCurrency,
+      foreignAmount: null as number | null,
+      rateForeignUnits: null as number | null,
+      rateBaseMinor: null as number | null,
+    };
+  }
+  const foreign = input.foreignAmount ?? 0;
+  assert(Number.isSafeInteger(foreign) && foreign > 0, "TX_AMOUNT", "請輸入正確的金額");
+  return {
+    amount: toBaseAmount(foreign, rate),
+    currency: rate.currency,
+    foreignAmount: foreign,
+    rateForeignUnits: rate.foreignUnits,
+    rateBaseMinor: rate.baseMinor,
+  };
 }
 
 /** 預購關聯只能指向這個帳本裡還在的單子（空值＝不關聯）。 */
@@ -325,13 +362,18 @@ export async function createTransactionIn(tx: Tx, ctx: BookContext, input: Trans
   });
   if (dup) return dup; // 重複送出：回傳第一次建立的那筆
   await assertPreorder(tx, ctx, input.preorderId);
-  const { occurredAt, lines } = await validateInput(tx, ctx, input);
+  const { occurredAt, lines, money } = await validateInput(tx, ctx, input);
   const created = await tx.transaction.create({
     data: {
       bookId: ctx.book.id,
       type: input.type,
       occurredAt,
-      amount: input.amount,
+      // amount 一律是本位幣；外幣的原始金額與當下匯率鎖在下面那四個欄位
+      amount: money.amount,
+      currency: money.currency,
+      foreignAmount: money.foreignAmount,
+      rateForeignUnits: money.rateForeignUnits,
+      rateBaseMinor: money.rateBaseMinor,
       title: input.title.trim() || null,
       note: input.note.trim() || null,
       categoryId: input.categoryId,
@@ -394,10 +436,16 @@ export async function updateTransaction(
     const refunded = before.type === "EXPENSE" ? await refundedAmount(tx, ctx.book.id, id) : 0;
     if (refunded > 0) {
       assert(input.type === "EXPENSE", "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，不能改成收入`);
+      // 本國消費在這裡就擋掉，錯誤訊息才會是「金額不能改成比它少」而不是分帳規則對不上。
+      // （外幣的 input.amount 是前端算的，不能當準，所以下面換算完還會再確認一次。）
       assert(input.amount >= refunded, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，金額不能改成比它少`);
     }
     await assertPreorder(tx, ctx, input.preorderId);
-    const { occurredAt, lines } = await validateInput(tx, ctx, { ...input, clientRequestId: before.clientRequestId }, before.categoryId);
+    const { occurredAt, lines, money } = await validateInput(tx, ctx, { ...input, clientRequestId: before.clientRequestId }, before.categoryId);
+    // 換算後再確認一次：外幣交易真正寫進去的是 money.amount，前端送來的數字不算數。
+    if (refunded > 0) {
+      assert(money.amount >= refunded, "TX_HAS_REFUND", `這筆消費已經退款 ${formatMoney(refunded)}，金額不能改成比它少`);
+    }
     await tx.transactionPayment.deleteMany({ where: { transactionId: id } });
     await tx.transactionSplit.deleteMany({ where: { transactionId: id } });
     const updated = await tx.transaction.update({
@@ -405,7 +453,13 @@ export async function updateTransaction(
       data: {
         type: input.type,
         occurredAt,
-        amount: input.amount,
+        // 編輯時匯率會**重新鎖一次**（用現在的設定）—— 這是對的：使用者正在重新
+        // 輸入這筆交易的內容。沒被編輯的交易完全不受影響。
+        amount: money.amount,
+        currency: money.currency,
+        foreignAmount: money.foreignAmount,
+        rateForeignUnits: money.rateForeignUnits,
+        rateBaseMinor: money.rateBaseMinor,
         title: input.title.trim() || null,
         note: input.note.trim() || null,
         categoryId: input.categoryId,
