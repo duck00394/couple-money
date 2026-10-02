@@ -120,6 +120,27 @@ export async function v14Currency(a: Page, b: Page) {
   expect(await pageText(b, "/rates")).toContain("已設定");
   step("另一半看到同一份匯率設定與同樣的原幣金額");
 
+  // ───────── 10b. 外幣帳本記帳時看得到「約 NT$」 ─────────
+  // 日圓帳本記日圓：幣別等於本位幣，所以沒有「換算」，但還是要知道大概多少台幣
+  await go(a, "/books/new");
+  await a.getByLabel("帳本名稱").fill("日圓帳本");
+  await a.getByLabel("本位幣").selectOption("JPY");
+  await a.getByLabel("JPY 數量").fill("100");
+  await a.getByLabel("台幣金額").fill("21.5");
+  await a.getByRole("button", { name: /建立並切換過去/ }).click();
+  await a.waitForURL(/\/$/);
+  await loaded(a);
+  await go(a, "/transactions/new");
+  await a.getByLabel("金額").fill("5000");
+  await expect(a.getByTestId("tx-home-approx"), "日圓帳本記帳沒有顯示約多少台幣").toContainText("NT$1,075");
+  step("日圓帳本記 ¥5,000：金額下面顯示「約 NT$1,075」");
+  // 切回原帳本，不影響後面的階段
+  await go(a, "/");
+  await a.getByTestId("book-switcher").click();
+  await a.getByTestId("book-menu").getByText("艾與本的帳本", { exact: true }).first().click();
+  await expect(a.getByTestId("book-switcher")).toContainText("艾與本的帳本", { timeout: 15000 });
+  await loaded(a);
+
   // ───────── 11. 沒設匯率的幣別不會出現在選單裡 ─────────
   await go(a, "/transactions/new");
   const options = await a.getByTestId("tx-currency").locator("option").allTextContents();

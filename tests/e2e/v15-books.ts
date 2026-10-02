@@ -67,6 +67,13 @@ export async function v15Books(a: Page, b: Page) {
   await shot(a, "v15-02-trip");
   step("建立「日本旅遊」（JPY），建立後直接切換過去（規格點 12）");
 
+  // ───────── 3b. 旅遊帳本首頁只講錢：沒有任務、沒有獎勵 ─────────
+  const tripHome = await pageText(a, "/");
+  expect(tripHome, "旅遊帳本首頁不該出現今日任務").not.toContain("今日任務");
+  expect(tripHome, "旅遊帳本首頁不該出現今日獎勵").not.toContain("今日獎勵");
+  expect(tripHome, "旅遊帳本首頁應該以最近紀錄為主").toContain("最近紀錄");
+  step("旅遊帳本首頁不顯示任務與獎勵，記帳相關的往上移");
+
   // ───────── 4. 旅遊帳本是乾淨的：看不到原帳本的交易 ─────────
   const tripFeed = await pageText(a, "/transactions");
   expect(tripFeed, "旅遊帳本混到了原帳本的交易").not.toContain("火鍋");
@@ -85,6 +92,7 @@ export async function v15Books(a: Page, b: Page) {
   // 原帳本沒有這筆
   await switchTo(a, MAIN_NAME);
   expect(await currentBook(a)).toContain(MAIN_NAME);
+  expect(await pageText(a, "/"), "原帳本的任務區不該被連帶拿掉").toContain("今日任務");
   expect(await pageText(a, "/transactions"), "原帳本看到了旅遊帳本的交易").not.toContain("日本拉麵");
   step("切回原帳本：看不到旅遊帳本的交易，兩邊完全分開（規格點 8）");
 

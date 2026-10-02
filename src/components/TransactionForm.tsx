@@ -3,7 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import { useMoney } from "./CurrencyContext";
 import { deleteTransactionAction, saveTransactionAction } from "@/app/actions/transactions";
-import { parseAmount, toInputString } from "@/lib/money";
+import { homeApprox, parseAmount, toInputString } from "@/lib/money";
 import { CURRENCIES, currencyOf, formatCurrency, minorPerUnit, parseCurrencyAmount } from "@/lib/currency";
 import { toBaseAmount } from "@/server/domain/exchange";
 import { initialCalc, isPending, press, type CalcState } from "@/lib/calc";
@@ -98,6 +98,14 @@ export function TransactionForm(props: {
    */
   baseCurrency?: string;
   rates?: Array<{ currency: string; foreignUnits: number; baseMinor: number }>;
+  /**
+   * 這本帳本的本位幣換回台幣的參考匯率（本位幣就是台幣時為 null）。
+   *
+   * 日圓帳本記日圓時，`isForeign` 是 false（幣別就是本位幣，沒有換算），
+   * 所以上面那條「≈」不會出現 —— 但使用者還是想知道「這 ¥5,000 大概多少台幣」。
+   * 這個 prop 就是為了那一行。
+   */
+  homeRate?: { units: number; minor: number } | null;
   /**
    * 購買紀錄的作品。每個作品帶著**自己的**角色與商品分類
    * （每個 IP 會出的東西不一樣，不共用一份）。空陣列＝還沒建立任何作品，那一列就不顯示。
@@ -214,6 +222,8 @@ export function TransactionForm(props: {
         : parseAmount(amountStr),
     [isForeign, foreignMinor, currency, rateUnits, rateBase, amountStr],
   );
+  // 本位幣不是台幣時，在金額下面補一行「約 NT$」。只是參考值，不參與任何計算。
+  const homeApproxText = amount !== null ? homeApprox(amount, props.homeRate ?? null) : null;
   const account = accounts.find((a) => a.id === accountId);
   const isShared = account?.ownerId === null;
 
@@ -385,17 +395,38 @@ export function TransactionForm(props: {
             )}
           </div>
           {/*
-            換算預覽。只有外幣才出現 —— 台幣記帳顯示「NT$500 ≈ NT$500」是多餘的（規格點 8）。
+            換算預覽。兩種情況，可能同時出現：
+
+            1. isForeign —— 台幣帳本記一筆日圓消費：顯示換算成本位幣是多少。
+            2. homeRate  —— 整本帳本就是日圓：幣別等於本位幣，所以沒有「換算」，
+               但使用者還是想知道這 ¥5,000 大概多少台幣。
+
+            台幣帳本記台幣時兩個都不會出現，畫面一個多餘的字都沒有（規格點 8）。
           */}
-          {isForeign && (
-            <div className="mt-1.5 flex items-baseline justify-between gap-2 border-t border-line pt-1.5">
-              <span className="amount text-[17px] text-stone-700" data-testid="tx-converted">
-                ≈ {amount !== null ? fmtMoney(amount) : fmtMoney(0)}
-              </span>
-              <span className="truncate text-[11px] text-stone-400">
-                {rateUnits.toLocaleString("en-US")} {currency} ={" "}
-                {formatCurrency(rateBase, baseCurrency, { symbol: false })} {baseCurrency}
-              </span>
+          {(isForeign || homeApproxText) && (
+            <div className="mt-1.5 border-t border-line pt-1.5">
+              {isForeign && (
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="amount text-[17px] text-stone-700" data-testid="tx-converted">
+                    ≈ {amount !== null ? fmtMoney(amount) : fmtMoney(0)}
+                  </span>
+                  <span className="truncate text-[11px] text-stone-400">
+                    {rateUnits.toLocaleString("en-US")} {currency} ={" "}
+                    {formatCurrency(rateBase, baseCurrency, { symbol: false })} {baseCurrency}
+                  </span>
+                </div>
+              )}
+              {homeApproxText && (
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="amount text-[17px] text-stone-700" data-testid="tx-home-approx">
+                    約 {homeApproxText}
+                  </span>
+                  <span className="truncate text-[11px] text-stone-400">
+                    {props.homeRate!.units.toLocaleString("en-US")} {baseCurrency} ={" "}
+                    {(props.homeRate!.minor / 100).toLocaleString("en-US")} TWD
+                  </span>
+                </div>
+              )}
             </div>
           )}
           {calc.error && <p className="mt-1 text-xs text-red-600" role="alert">{calc.error}</p>}

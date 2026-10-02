@@ -46,6 +46,8 @@ export async function loadTxFormOptions(ctx: BookContext, opts: { keepCategoryId
     /** V14：帳本本位幣，以及已經設定好匯率的外幣（沒設定過就是空陣列，幣別選單不會出現） */
     baseCurrency: ctx.book.baseCurrency,
     rates,
+    /** V16：本位幣換回台幣的參考匯率（本位幣就是台幣時為 null）—— 記帳頁用來顯示「約 NT$」 */
+    homeRate: ctx.book.homeRate,
   };
 }
 

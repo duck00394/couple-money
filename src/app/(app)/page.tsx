@@ -34,6 +34,14 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
   const { ctx, user } = await getAppContext();
   const fmtMoney = moneyFmt(ctx.book.baseCurrency);
   const books = await listMyBooks(user.id);
+  /*
+   * V16：旅遊／自訂帳本的首頁只講錢。
+   *
+   * 出國時打開 App 的第一件事是記帳，不是看今天輪到誰洗碗 —— 家事任務是
+   * 原帳本（日常生活）的東西。旅遊帳本本來也不會有任務（建立時不複製），
+   * 所以這一區在那裡永遠是空的，留著只是把「最近紀錄」往下推。
+   */
+  const isDaily = ctx.book.type === "MAIN";
   const currentBook = books.find((b) => b.id === ctx.book.id) ?? books[0];
   await applyMissedPenalties(ctx);
   const now = new Date();
@@ -121,7 +129,10 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
         </div>
       </header>
 
-      {/* ── 1. 今天要做什麼：每天打開 App 的第一件事，直接在這裡打卡 ── */}
+      {/* ── 1. 今天要做什麼：每天打開 App 的第一件事，直接在這裡打卡 ──
+             旅遊帳本不顯示（那裡的第一件事是記帳） ── */}
+      {isDaily && (
+        <>
       <SectionTitle
         right={<Link href="/tasks" className="text-sm text-brand-600">全部任務</Link>}
       >
@@ -160,6 +171,8 @@ export default async function DashboardPage({ searchParams }: PageProps<"/">) {
               </p>
             )}
           </Card>
+        </>
+      )}
         </>
       )}
 

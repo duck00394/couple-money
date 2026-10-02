@@ -404,6 +404,7 @@ export function txFormOptions(state: DemoState, todayKey: string) {
     // V14：試用模式也能切幣別。沒設匯率的幣別不會出現在選單裡。
     baseCurrency: state.baseCurrency,
     rates: state.rates,
+    homeRate: null,
     funds: funds(state).map((f) => ({ id: f.id, name: f.name, balance: f.balance, isArchived: f.isArchived })),
     purchaseGroups: state.purchaseGroups.map((g) => ({
       id: g.id,
