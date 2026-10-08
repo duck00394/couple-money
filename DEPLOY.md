@@ -129,6 +129,7 @@ Vercel 的機器**沒有持久硬碟**，寫進檔案系統的照片下次部署
 | `STORAGE_DRIVER` | 自動判斷 | 明確指定儲存方式：`local`（磁碟）或 `blob`（Vercel Blob）。留空就是「有 `BLOB_READ_WRITE_TOKEN` 用 blob，否則用 local」 | `.env` 或 Vercel |
 | `UPLOAD_DIR` | 專案下的 `.uploads/` | `local` driver 把照片寫到哪個資料夾 | `.env` |
 | `NEXT_PUBLIC_PHOTOS_ENABLED` | `1`（開啟） | 設成 `0` 會把收據照片、打卡照片、頭貼的上傳入口整個藏起來 | `.env` 或 Vercel |
+| `TRAVEL_DIARY_URL` | — | 旅行日記的網址（例如 `https://trip-diary.vercel.app`）。設了之後，旅行日記的「匯出到情侶帳本」才能把記帳帶進來（匯入頁是 `/import/travel`）。不需要任何金鑰：旅行日記簽的 10 分鐘匯出票由旅行日記自己驗證 | Vercel |
 | `TEST_DATABASE_URL` | — | 整合測試要用的資料庫（**會被清空**，千萬不要填正式資料庫） | 只在跑測試時當作指令前綴 |
 | `BASE_URL` | `http://localhost:3000` | E2E 測試要打哪個網址 | 只在跑測試時當作指令前綴 |
 | `BACKUP_DIR` | `./backups` | `scripts/backup.sh` 的輸出位置 | 只在跑備份時當作指令前綴 |
